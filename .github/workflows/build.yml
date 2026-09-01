@@ -1,0 +1,93 @@
+name: Build Android module
+
+on:
+  push:
+    branches:
+      - main
+      - 'ci/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Validate required secrets
+        env:
+          MANIFEST_KEY: ${{ secrets.MANIFEST_KEY }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in MANIFEST_KEY KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required repository secret: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Prepare signing and Sekret configuration
+        env:
+          MANIFEST_KEY: ${{ secrets.MANIFEST_KEY }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/pcs.keystore"
+
+          key_hash="$({ keytool -exportcert \
+            -keystore "$RUNNER_TEMP/pcs.keystore" \
+            -storepass "$KEYSTORE_PASSWORD" \
+            -alias "$KEY_ALIAS"; } | xxd -p -c 1000000)"
+
+          cat > local.properties <<EOF
+          storeFile=$RUNNER_TEMP/pcs.keystore
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          keyHash=$key_hash
+          EOF
+
+          cat > app/sekret.properties <<EOF
+          MANIFEST_KEY=$MANIFEST_KEY
+          EOF
+
+      - name: Generate Sekret sources
+        run: ./gradlew --no-daemon generateSekret
+
+      - name: Create Sekret native library
+        run: ./gradlew --no-daemon createAndCopySekretNativeBinary
+
+      - name: Build release APK
+        run: ./gradlew --no-daemon :app:assembleRelease
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PublicComputeServices-release-${{ github.sha }}
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 14
