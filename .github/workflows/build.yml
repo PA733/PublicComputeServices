@@ -1,0 +1,132 @@
+name: Build Android module
+
+on:
+  push:
+    branches:
+      - main
+      - 'ci/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Prepare build paths
+        run: |
+          chmod +x gradlew
+          mkdir -p app/sekret
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Prepare ephemeral debug signing and Sekret configuration
+        env:
+          MANIFEST_KEY: ${{ secrets.MANIFEST_KEY }}
+        run: |
+          set -euo pipefail
+
+          keystore="$RUNNER_TEMP/pcs-debug.keystore"
+          store_password=android
+          key_password=android
+          key_alias=pcs-debug
+
+          keytool -genkeypair \
+            -keystore "$keystore" \
+            -storepass "$store_password" \
+            -keypass "$key_password" \
+            -alias "$key_alias" \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 3650 \
+            -dname "CN=GitHub Actions Debug, O=PublicComputeServices" \
+            -noprompt
+
+          # The app uses the raw signing certificate bytes, encoded as hex, as
+          # Sekret's encryption key. Derive the exact value from this run's
+          # temporary signing certificate.
+          key_hash="$(keytool -exportcert \
+            -keystore "$keystore" \
+            -storepass "$store_password" \
+            -alias "$key_alias" | xxd -p -c 1000000)"
+
+          cat > local.properties <<EOF
+          storeFile=$keystore
+          storePassword=$store_password
+          keyAlias=$key_alias
+          keyPassword=$key_password
+          keyHash=$key_hash
+          EOF
+
+          # MANIFEST_KEY is only needed for a functionally usable APK. For pure
+          # compile verification, use a dummy hex value when the secret is absent.
+          manifest_key="${MANIFEST_KEY:-00}"
+          if [ -z "${MANIFEST_KEY:-}" ]; then
+            echo "::warning::MANIFEST_KEY is not configured; this artifact verifies the build but cannot decrypt real manifests."
+          fi
+          printf 'MANIFEST_KEY=%s\n' "$manifest_key" > app/sekret.properties
+
+      - name: Generate Sekret sources
+        run: ./gradlew --no-daemon generateSekret
+
+      - name: Configure generated Sekret Android module
+        run: |
+          set -euo pipefail
+
+          if [ -f app/sekret/build.gradle.kts ]; then
+            build_file=app/sekret/build.gradle.kts
+            if ! grep -q 'compileSdk' "$build_file"; then
+              cat >> "$build_file" <<'EOF'
+
+          android {
+              namespace = "com.kieronquinn.app.pcs.sekret"
+              compileSdk {
+                  version = release(36)
+              }
+          }
+          EOF
+            fi
+          elif [ -f app/sekret/build.gradle ]; then
+            build_file=app/sekret/build.gradle
+            if ! grep -q 'compileSdk' "$build_file"; then
+              cat >> "$build_file" <<'EOF'
+
+          android {
+              namespace = "com.kieronquinn.app.pcs.sekret"
+              compileSdk 36
+          }
+          EOF
+            fi
+          else
+            echo "Generated Sekret build file was not found" >&2
+            exit 1
+          fi
+
+      - name: Create Sekret native library
+        run: ./gradlew --no-daemon createAndCopySekretNativeBinary
+
+      - name: Build debug APK
+        run: ./gradlew --no-daemon :app:assembleDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PublicComputeServices-debug-${{ github.sha }}
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
