@@ -100,8 +100,8 @@ class ManifestRepositoryImpl(
             return false
         }
         state.emit(ManifestState.Loading)
-        val manifestKey = context.getManifestKey()
         val manifests = try {
+            val manifestKey = context.getManifestKey()
             manifestService.getManifest(repositoryUrl)
                 ?.decryptManifest(context, manifestKey)
                 ?.let { Manifests.parseFrom(it) }
