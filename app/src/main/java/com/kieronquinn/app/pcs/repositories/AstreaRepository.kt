@@ -1,9 +1,17 @@
 package com.kieronquinn.app.pcs.repositories
 
 import android.content.Context
+import android.util.Log
 import com.kieronquinn.app.pcs.grpc.ProtectedDownloadGrpcService
+import com.kieronquinn.app.pcs.grpc.OdsProxy
 import com.kieronquinn.app.pcs.utils.extensions.fromBase64
+import com.kieronquinn.app.pcs.utils.extensions.SystemProperties_getBoolean
+import io.grpc.Metadata
+import io.grpc.ServerCall
+import io.grpc.ServerCallHandler
+import io.grpc.ServerInterceptor
 import io.grpc.TlsServerCredentials
+import io.grpc.ServerServiceDefinition
 import io.grpc.okhttp.OkHttpServerBuilder
 import java.io.ByteArrayInputStream
 
@@ -88,6 +96,29 @@ d3IxU1ZHU3JHUStGUDhDSlg1Zkc4YjhKQ2NuSEVXNUY3VEV1Y2tVK0owNGkyRVVNZy9sS2RKZisK
 TWdnT0FtKzkzU01GYzVGVzdKYjlmQjQ9Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K""".fromBase64()
 
         private const val MAX_RESPONSE_SIZE_IN_BYTES: Int = 32 * 1024 * 1024 // Max download size: 32MB
+
+        /**
+         *  Set to `0`/`false` to stop forwarding the ODS calls this module does not implement to
+         *  `ondevicesafety-pa.googleapis.com` (model downloads then fail again, but manifests keep
+         *  working).
+         */
+        const val ODS_PROXY_PROPERTY_NAME = "persist.pcs.ods_proxy"
+
+        /**
+         *  Logs every gRPC call that reaches the local server, including the ones no service is
+         *  registered for. Without this a call to an unimplemented method (everything the host
+         *  offers besides `GetManifestConfig`) fails silently on the client side.
+         */
+        private val LOGGING_INTERCEPTOR = object: ServerInterceptor {
+            override fun <ReqT, RespT> interceptCall(
+                call: ServerCall<ReqT, RespT>,
+                headers: Metadata,
+                next: ServerCallHandler<ReqT, RespT>
+            ): ServerCall.Listener<ReqT> {
+                Log.d("AstreaService", "gRPC call: ${call.methodDescriptor.fullMethodName}")
+                return next.startCall(call, headers)
+            }
+        }
     }
 
     private val server by lazy {
@@ -98,11 +129,40 @@ TWdnT0FtKzkzU01GYzVGVzdKYjlmQjQ9Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K""".fromBase
             .build()
         key.close()
         pem.close()
-        OkHttpServerBuilder.forPort(port, credentials)
+        val builder = OkHttpServerBuilder.forPort(port, credentials)
             .maxInboundMessageSize(MAX_RESPONSE_SIZE_IN_BYTES)
-            .addService(ProtectedDownloadGrpcService(context))
-            .build()
+            .intercept(LOGGING_INTERCEPTOR)
+            .intercept(OdsProxy.capturingInterceptor)
+            .addService(manifestService(context))
+        if (odsProxyEnabled()) {
+            runCatching {
+                OdsProxy.definitions().forEach { builder.addService(it) }
+            }.onFailure {
+                Log.e("AstreaService", "Unable to register the ODS proxy services", it)
+            }
+        }
+        builder.build()
     }
+
+    /**
+     *  The manifest service must keep working even if adding the proxied methods fails, otherwise
+     *  AICore cannot fetch a manifest at all.
+     */
+    private fun manifestService(context: Context): ServerServiceDefinition {
+        val base = ProtectedDownloadGrpcService(context).bindService()
+        if (!odsProxyEnabled()) {
+            Log.d("AstreaService", "ODS proxy is disabled, model downloads will not complete")
+            return base
+        }
+        return runCatching { OdsProxy.extend(base) }
+            .onFailure {
+                Log.e("AstreaService", "Unable to add the proxied methods to the manifest service", it)
+            }
+            .getOrDefault(base)
+    }
+
+    private fun odsProxyEnabled() =
+        SystemProperties_getBoolean(ODS_PROXY_PROPERTY_NAME, true)
 
     override fun start() {
         try {
