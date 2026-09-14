@@ -1,6 +1,7 @@
 package com.kieronquinn.app.pcs
 
 import android.app.Application
+import android.util.Log
 import com.google.crypto.tink.hybrid.HybridConfig
 import com.kieronquinn.app.pcs.repositories.DeviceConfigPropertiesRepository
 import com.kieronquinn.app.pcs.repositories.DeviceConfigPropertiesRepositoryImpl
@@ -20,6 +21,8 @@ import com.kieronquinn.app.pcs.repositories.UpdateRepository
 import com.kieronquinn.app.pcs.repositories.UpdateRepositoryImpl
 import com.kieronquinn.app.pcs.repositories.XposedRepository
 import com.kieronquinn.app.pcs.repositories.XposedRepositoryImpl
+import com.kieronquinn.app.pcs.utils.OfficialSekret
+import com.kieronquinn.app.pcs.utils.extensions.SystemProperties_get
 import com.kieronquinn.app.pcs.ui.screens.baseurl.BaseUrlViewModel
 import com.kieronquinn.app.pcs.ui.screens.baseurl.BaseUrlViewModelImpl
 import com.kieronquinn.app.pcs.ui.screens.baseurl.dialog.BaseUrlDialogViewModel
@@ -58,6 +61,9 @@ class PcsApplication: Application() {
         // Only run extra stuff on main process
         if (getProcessName() != BuildConfig.APPLICATION_ID) return
         System.loadLibrary("sekret")
+        if (SystemProperties_get("persist.pcs.dump_manifest") != null) {
+            Log.d("PcsManifestDump", "manifest key: ${OfficialSekret.manifestKey()}")
+        }
         HybridConfig.register()
         startKoin {
             androidContext(this@PcsApplication)

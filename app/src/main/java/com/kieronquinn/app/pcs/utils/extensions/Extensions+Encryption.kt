@@ -1,6 +1,7 @@
 package com.kieronquinn.app.pcs.utils.extensions
 
 import android.content.Context
+import android.util.Log
 import com.google.crypto.tink.BinaryKeysetReader
 import com.google.crypto.tink.CleartextKeysetHandle
 import com.google.crypto.tink.HybridDecrypt
@@ -10,6 +11,9 @@ import com.kieronquinn.app.pcs.utils.OfficialSekret
 
 fun Context.getManifestKey(): KeysetHandle {
     val key = OfficialSekret.manifestKey()?.hexToByteArray()
+    if (SystemProperties_get("persist.pcs.dump_manifest") != null) {
+        Log.d("PcsManifestDump", "manifest key: ${key?.toHexString()}")
+    }
     return key?.toKeysetHandle() ?: throw IllegalStateException("Unable to load manifest key")
 }
 

@@ -1,12 +1,14 @@
 package com.kieronquinn.app.pcs.repositories
 
 import android.content.Context
+import android.util.Log
 import com.google.android.`as`.oss.pd.api.proto.BlobConstraints
 import com.google.android.`as`.oss.pd.api.proto.BlobConstraints.ClientGroup
 import com.google.android.`as`.oss.pd.manifest.api.proto.GetManifestConfigRequest
 import com.google.android.`as`.oss.pd.manifest.api.proto.ManifestConfigConstraints
 import com.google.crypto.tink.KeysetHandle
 import com.kieronquinn.app.pcs.model.Manifests
+import com.kieronquinn.app.pcs.model.Manifest
 import com.kieronquinn.app.pcs.model.PcsClient
 import com.kieronquinn.app.pcs.model.phone.PhoneManifest
 import com.kieronquinn.app.pcs.repositories.ManifestRepository.ManifestState
@@ -20,6 +22,7 @@ import com.kieronquinn.app.pcs.utils.extensions.deviceTier
 import com.kieronquinn.app.pcs.utils.extensions.getManifestKey
 import com.kieronquinn.app.pcs.utils.extensions.toKeysetHandle
 import com.kieronquinn.app.pcs.utils.extensions.variant
+import com.kieronquinn.app.pcs.utils.extensions.SystemProperties_get
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,6 +33,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import retrofit2.Retrofit
+import java.io.File
 
 interface ManifestRepository {
 
@@ -185,7 +189,75 @@ class ManifestRepositoryImpl(
                 clientGroupFallbackToFirst = true
             )
         } ?: return null
-        return getManifest(url, manifest.name, manifest.encryptionKey.toByteArray().toKeysetHandle())
+        dumpManifestSelection(request, mainManifest, manifest)
+        val decrypted = getManifest(
+            url, manifest.name, manifest.encryptionKey.toByteArray().toKeysetHandle()
+        ) ?: return null
+        dumpManifest(request, manifest.name, decrypted)
+        return decrypted
+    }
+
+    /**
+     *  Debug helper: prints the manifest entry picked out of the repository index for a request,
+     *  along with every entry the repository offers for the same client, so a request that is
+     *  answered by the wrong (or no) manifest can be told apart from a manifest that simply does
+     *  not contain the expected file groups. Enabled with `persist.pcs.dump_manifest`.
+     */
+    private fun dumpManifestSelection(
+        request: GetManifestConfigRequest,
+        manifests: Manifests,
+        selected: Manifest
+    ) {
+        if (SystemProperties_get("persist.pcs.dump_manifest") == null) return
+        runCatching {
+            val clientId = request.constraints.clientId
+            val requestClient = PcsClient.entries.firstOrNull { it.clientId == clientId }?.client
+            val forClient = manifests.manifestList.filter {
+                it.constraints.client == requestClient
+            }
+            Log.d(
+                "PcsManifestDump",
+                "request client=$clientId picked=${selected.name} " +
+                        "(${selected.constraints}) of ${manifests.manifestList.size} entries, " +
+                        "entries for this client: ${forClient.joinToString { "${it.name}(${it.constraints})" }}"
+            )
+        }
+    }
+
+    /**
+     *  Debug helper: writes the manifest handed to a client to the app's external files directory
+     *  so the file groups it contains can be inspected. Enabled with `persist.pcs.dump_manifest`.
+     */
+    private fun dumpManifest(
+        request: GetManifestConfigRequest,
+        manifestName: String,
+        manifest: ByteArray
+    ) {
+        val enabled = SystemProperties_get("persist.pcs.dump_manifest") ?: return
+        val clientId = request.constraints.clientId.substringAfterLast(":").take(20)
+        val labels = request.constraints.labelList.joinToString(",") {
+            "${it.attribute}=${it.value}"
+        }
+        val fileGroups = Regex("feature_[0-9]+")
+            .findAll(String(manifest, Charsets.ISO_8859_1))
+            .map { it.value }
+            .toSortedSet()
+        Log.d(
+            "PcsManifestDump",
+            "client=${request.constraints.clientId} labels=[$labels] manifest=$manifestName " +
+                    "size=${manifest.size} enabled=$enabled fileGroups=$fileGroups"
+        )
+        val name = "$clientId-$manifestName.bin"
+        listOfNotNull(context.getExternalFilesDir(null), context.filesDir).forEach { directory ->
+            runCatching {
+                val dumpDirectory = File(directory, "pcs_dump")
+                dumpDirectory.mkdirs()
+                File(dumpDirectory, name).writeBytes(manifest)
+                Log.d("PcsManifestDump", "Wrote ${File(dumpDirectory, name).absolutePath}")
+            }.onFailure {
+                Log.e("PcsManifestDump", "Failed to write $name to $directory", it)
+            }
+        }
     }
 
     override suspend fun getPhoneManifest(url: String, clientId: String): ByteArray? {
