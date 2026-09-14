@@ -1,17 +1,15 @@
 package com.kieronquinn.app.pcs.utils.extensions
 
 import android.content.Context
-import android.content.pm.PackageManager
 import com.google.crypto.tink.BinaryKeysetReader
 import com.google.crypto.tink.CleartextKeysetHandle
 import com.google.crypto.tink.HybridDecrypt
 import com.google.crypto.tink.KeysetHandle
 import com.google.crypto.tink.RegistryConfiguration
-import com.kieronquinn.app.pcs.BuildConfig
-import com.kieronquinn.app.pcs.sekret.Sekret
+import com.kieronquinn.app.pcs.utils.OfficialSekret
 
 fun Context.getManifestKey(): KeysetHandle {
-    val key = Sekret.manifestKey(getSignatureHash().toHexString())?.hexToByteArray()
+    val key = OfficialSekret.manifestKey()?.hexToByteArray()
     return key?.toKeysetHandle() ?: throw IllegalStateException("Unable to load manifest key")
 }
 
@@ -31,16 +29,11 @@ fun ByteArray.decryptManifest(context: Context?, key: KeysetHandle): ByteArray {
     ).decrypt(this, contextInfo)
 }
 
+/**
+ *  The signing certificate of the official PCS release, used for both the sekret key lookup and
+ *  as the manifest decryption context info. This module is not signed with it, so it is provided
+ *  directly instead of being read from the installed package.
+ */
 fun Context.getSignatureHash(): ByteArray {
-    return packageManager.getPackageInfo(
-        BuildConfig.APPLICATION_ID,
-        PackageManager.GET_SIGNING_CERTIFICATES
-    ).signingInfo?.let {
-        val signatures = it.apkContentsSigners
-        if (!signatures.isNullOrEmpty()) {
-            signatures[0].toByteArray()
-        } else {
-            it.signingCertificateHistory?.get(0)?.toByteArray()
-        }
-    } ?: throw IllegalStateException("No signing certificate found")
+    return OfficialSekret.signatureHash
 }

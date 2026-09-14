@@ -449,6 +449,8 @@ app/versions
 app/sekret
 app/sekret.properties
 app/src/main/jniLibs
+# The official sekret binary is checked in, the locally generated one is not
+!app/src/main/jniLibs-official/arm64-v8a/libsekret.so
 
 .kotlin
 output-metadata.json
