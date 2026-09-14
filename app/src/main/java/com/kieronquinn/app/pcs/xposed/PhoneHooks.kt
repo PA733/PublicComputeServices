@@ -27,6 +27,7 @@ import java.lang.reflect.Modifier
 import java.lang.reflect.Proxy
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 object PhoneHooks: GrpcHooks() {
 
@@ -60,6 +61,7 @@ object PhoneHooks: GrpcHooks() {
     private val lateAssociations = ConcurrentHashMap.newKeySet<PhoneFlag>()
     private val unassociatedReads = ConcurrentHashMap.newKeySet<String>()
     private val pendingFlag = ThreadLocal<PhoneFlag?>()
+    private val lastXatuDownloadAttempt = AtomicLong(0)
 
     override fun isEnabled(): Boolean {
         return SystemProperties_getBoolean(PHONE_ENABLED, false)
@@ -77,6 +79,8 @@ object PhoneHooks: GrpcHooks() {
         hookCallScreen(dexKit, settings)
         hookDobbyModel(dexKit, settings)
         hookDobbySettings(dexKit, settings)
+        hookXatuModelDownload(dexKit, settings)
+        hookXatuMddConnectivity(dexKit, settings)
         if (settings.patrickPhase > PatrickPhase.DISABLED) {
             hookPatrick(dexKit)
         }
@@ -559,6 +563,198 @@ object PhoneHooks: GrpcHooks() {
             }
         }
     }
+
+    /**
+     *  Direct My Call (Xatu) downloads its model from MDD, but Dialer only starts that download
+     *  when the user opts in from the settings screen: the DataStore write that the opt-in performs
+     *  is what runs `XatuPipelineModelDownloader.downloadNecessaryModels` (through the data store
+     *  `onData` callback). Once the module has pinned the enrollment flag, the feature already
+     *  reads as opted in, so Dialer shows "Downloading Direct My Call..." with the switches
+     *  disabled and never performs the write that would start the download, leaving the model
+     *  unavailable forever.
+     *
+     *  Run the same trigger whenever the Xatu settings data source is loaded, which is the point
+     *  at which the download state is (re)checked. The download itself is the regular Dialer code
+     *  path, so it uses the `XATU_MODELS` flag the manifest overrides provide.
+     */
+    private fun LoadPackageParam.hookXatuModelDownload(
+        dexKit: DexKitBridge,
+        settings: PhoneSettings
+    ) {
+        if (!settings.xatuEnabled || settings.xatuModels == null) return
+        val dataSource = dexKit.findClass {
+            matcher {
+                usingStrings("XatuSettingsKey")
+            }
+        }.singleOrNull()?.getInstance(classLoader) ?: run {
+            log("Unable to find XatuSettingsDataSource")
+            return
+        }
+        // The downloader is only identifiable by its log tag, which other Xatu classes share, so
+        // pick the candidate the settings data source holds
+        val downloaderCandidates = dexKit.findClass {
+            matcher {
+                usingStrings("com/android/dialer/xatu/impl/pipeline/XatuPipelineModelDownloader")
+            }
+        }.mapNotNull {
+            try {
+                it.getInstance(classLoader)
+            }catch (e: Throwable) {
+                null
+            }
+        }
+        val downloaderField = dataSource.declaredFields.firstOrNull { field ->
+            downloaderCandidates.any { it == field.type }
+        } ?: run {
+            log("Unable to find the Xatu model downloader in ${dataSource.name}")
+            return
+        }
+        val downloader = downloaderField.type
+        val downloadMethod = downloader.declaredMethods.firstOrNull {
+            it.parameterCount == 0 && !Modifier.isStatic(it.modifiers) && it.returnType != Void.TYPE
+        } ?: run {
+            log("Unable to find the Xatu model download trigger in ${downloader.name}")
+            return
+        }
+        // The data source "load" is the accessor returning the same future type as the downloader
+        val loadMethod = dataSource.declaredMethods.firstOrNull {
+            it.parameterCount == 0 && !Modifier.isStatic(it.modifiers) &&
+                    it.returnType == downloadMethod.returnType
+        }
+        val trigger = object: XC_MethodHook() {
+            override fun afterHookedMethod(param: MethodHookParam) {
+                val now = System.currentTimeMillis()
+                val last = lastXatuDownloadAttempt.get()
+                if (now - last < XATU_DOWNLOAD_RETRY_DELAY) {
+                    return
+                }
+                if (!lastXatuDownloadAttempt.compareAndSet(last, now)) {
+                    return
+                }
+                try {
+                    val downloaderInstance = downloaderField.apply {
+                        isAccessible = true
+                    }.get(param.thisObject) ?: return
+                    downloadMethod.isAccessible = true
+                    log("Triggering the Direct My Call model download")
+                    downloadMethod.invoke(downloaderInstance)
+                }catch (e: Throwable) {
+                    log("Failed to trigger the Direct My Call model download: $e")
+                }
+            }
+        }
+        dataSource.declaredConstructors.forEach {
+            XposedBridge.hookMethod(it, trigger)
+        }
+        loadMethod?.let {
+            XposedBridge.hookMethod(it, trigger)
+        }
+        log(
+            "Triggering the Direct My Call model download from ${dataSource.name}" +
+                    (loadMethod?.let { ".${it.name}()" } ?: "")
+        )
+    }
+
+    private const val XATU_DOWNLOAD_RETRY_DELAY = 60 * 1000L
+
+    /**
+     *  MDD only runs a download once the device has a connection that satisfies the request, and
+     *  the queued Xatu model asks for an unmetered one, so on a device that only ever has mobile
+     *  data the download started by [hookXatuModelDownload] stays queued forever and the settings
+     *  banner keeps showing a download that never happens.
+     *
+     *  Dialer's download queue (`MddFileDownloader`'s queue) decides that from a requirement on
+     *  each queued request, so treat the Direct My Call model request as having no requirement once
+     *  it is queued. `persist.pcs.mdd_metered=off` leaves Dialer's check alone.
+     */
+    private fun LoadPackageParam.hookXatuMddConnectivity(
+        dexKit: DexKitBridge,
+        settings: PhoneSettings
+    ) {
+        if (!settings.xatuEnabled || settings.xatuModels == null) return
+        if (SystemProperties_get(MDD_METERED)?.equals("off", ignoreCase = true) == true) {
+            log("Leaving Dialer's MDD connectivity requirement alone")
+            return
+        }
+        val modelFileName = settings.xatuModels.fromBase64()
+            .toString(Charsets.ISO_8859_1)
+            .let { XATU_MODEL_URL.find(it)?.value }
+            ?.substringAfterLast('/') ?: run {
+            log("Unable to find the Direct My Call model URL")
+            return
+        }
+        val downloadQueue = dexKit.findClass {
+            matcher {
+                usingStrings("requests pending connectivity")
+            }
+        }.singleOrNull()?.getInstance(classLoader) ?: run {
+            log("Unable to find the MDD download queue")
+            return
+        }
+        val connectivityCheck = downloadQueue.declaredMethods.firstOrNull {
+            it.parameterCount == 1 && it.returnType == java.lang.Boolean.TYPE &&
+                    it.parameterTypes[0].isEnum
+        } ?: run {
+            log("Unable to find the MDD connectivity check")
+            return
+        }
+        val requirementType = connectivityCheck.parameterTypes[0]
+        // The request the queue checks is the one it hands to the download worker, and it is no
+        // longer queued by then, so replace the requirement on the request itself
+        val request = downloadQueue.declaredMethods.asSequence()
+            .filter {
+                it.parameterCount == 1 && !Modifier.isStatic(it.modifiers)
+            }
+            .map { it.parameterTypes[0] }
+            .distinct()
+            .firstOrNull { type ->
+                type.declaredMethods.any {
+                    it.parameterCount == 0 && it.returnType == requirementType
+                }
+            } ?: run {
+            log("Unable to find the MDD download request")
+            return
+        }
+        val requirementGetter = request.declaredMethods.firstOrNull {
+            it.parameterCount == 0 && it.returnType == requirementType
+        } ?: run {
+            log("Unable to find the MDD request connectivity requirement")
+            return
+        }
+        XposedBridge.hookMethod(requirementGetter, object: XC_MethodHook() {
+            override fun afterHookedMethod(param: MethodHookParam) {
+                val requirement = param.result as? Enum<*> ?: return
+                if (requirement.name != "WIFI_ONLY") return
+                if (!param.thisObject.isRequestFor(modelFileName)) return
+                val satisfied = requirementType.enumConstants
+                    ?.firstOrNull { (it as? Enum<*>)?.name == "NONE" } ?: return
+                log("Allowing the Direct My Call model download on the current network")
+                param.result = satisfied
+            }
+        })
+        log("Relaxing the MDD connectivity requirement for $modelFileName")
+    }
+
+    /**
+     *  Whether a queued MDD download request targets the given file, matched on the URL the
+     *  request was built with
+     */
+    private fun Any?.isRequestFor(fileName: String): Boolean {
+        if (this == null) return false
+        return javaClass.declaredFields.any { field ->
+            if (field.type != String::class.java) return@any false
+            try {
+                field.isAccessible = true
+                (field.get(this) as? String)?.contains(fileName) == true
+            }catch (e: Throwable) {
+                false
+            }
+        }
+    }
+
+    private const val MDD_METERED = "persist.pcs.mdd_metered"
+
+    private val XATU_MODEL_URL = Regex("""https://[\x21-\x7e]{5,300}?\.zip""")
 
     /**
      *  Additional hooks required to make Patrick work on some devices
