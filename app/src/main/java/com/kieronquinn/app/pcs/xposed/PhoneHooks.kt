@@ -25,6 +25,7 @@ import org.luckypray.dexkit.result.MethodData
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.lang.reflect.Proxy
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 object PhoneHooks: GrpcHooks() {
@@ -36,6 +37,14 @@ object PhoneHooks: GrpcHooks() {
      *  flags in charge.
      */
     private const val CALL_SCREEN_AGENTIC = "persist.pcs.call_screen_agentic"
+
+    /**
+     *  Scam Detection (Sharpie) only runs when the SIM country is in an allowlist baked into the
+     *  Sharpie config, so a device with a SIM from an unsupported country (eg CN) gets the
+     *  "Scam Detection is not available" banner and never downloads the Hades protections. This
+     *  property selects how that country is handled, see [sharpieCountryMode].
+     */
+    private const val SHARPIE_COUNTRY = "persist.pcs.sharpie_country"
 
     override val tag = "PhoneHooks"
     override val applicationClassName = "com.android.dialer.Dialer_Application"
@@ -64,6 +73,7 @@ object PhoneHooks: GrpcHooks() {
         }
         logDobbyData(settings)
         hookFlagDataStore(dexKit, settings)
+        hookSharpieCountry(dexKit, settings)
         hookCallScreen(dexKit, settings)
         hookDobbyModel(dexKit, settings)
         hookDobbySettings(dexKit, settings)
@@ -302,6 +312,93 @@ object PhoneHooks: GrpcHooks() {
             }
             else -> "not enabled in settings"
         }
+    }
+
+    /**
+     *  Scam Detection (Sharpie) is gated on the SIM country being in an allowlist that is part of
+     *  the Sharpie config, so a device with a SIM from an unsupported country gets the "Scam
+     *  Detection is not available" banner and never downloads the Hades protections:
+     *
+     *  `SharpieCountryAllowlist.isSimCountryAllowed` -> `SharpieScamIntentPolicyMoiraiAvailability`
+     *  -> `MoiraiIntegrationImpl.isAvailable` -> `SHARPIE_HADES_PROTECTION_CANNOT_DOWNLOAD`
+     *
+     *  The country comes from `TelephonyManager.getSimCountryIso()` and is carried in the config
+     *  (`I18nConfig.detectionCountryLegacy`), so the check is replaced here rather than the
+     *  telephony API, which other Dialer features rely on.
+     *
+     *  `persist.pcs.sharpie_country` selects the behaviour:
+     *
+     *  - unset / `allow` - accept any country (default)
+     *  - `off` / `0` / `false` - leave Dialer's check alone
+     *  - a country code (`US`, `GB`, ...) - only accept that country
+     */
+    private fun LoadPackageParam.hookSharpieCountry(dexKit: DexKitBridge, settings: PhoneSettings) {
+        if (!settings.sharpieEnabled) return
+        val mode = sharpieCountryMode()
+        if (mode == SharpieCountryMode.DIALER_DEFAULT) {
+            log("Leaving Dialer's Scam Detection country check alone")
+            return
+        }
+        val allowlist = dexKit.findClass {
+            matcher {
+                usingStrings("Country %s not allowed.", "No sim country found.")
+            }
+        }.singleOrNull()?.getInstance(classLoader) ?: run {
+            log("Unable to find SharpieCountryAllowlist")
+            return
+        }
+        val isSimCountryAllowed = allowlist.declaredMethods.firstOrNull {
+            it.parameterCount == 2 && it.parameterTypes[0] == String::class.java &&
+                    it.returnType == java.lang.Boolean.TYPE
+        } ?: run {
+            log("Unable to find SharpieCountryAllowlist method")
+            return
+        }
+        XposedBridge.hookMethod(isSimCountryAllowed, object: XC_MethodHook() {
+            override fun afterHookedMethod(param: MethodHookParam) {
+                if (param.result == true) return
+                val country = param.args[0] as? String ?: return
+                val allowed = when (mode) {
+                    SharpieCountryMode.DIALER_DEFAULT -> false
+                    SharpieCountryMode.ALLOW_ALL -> true
+                    is SharpieCountryMode.FORCE_COUNTRY -> {
+                        (param.args[1] as? List<*>)?.any {
+                            it?.toString()?.equals(mode.country, ignoreCase = true) == true
+                        } == true
+                    }
+                }
+                if (allowed) {
+                    log("Allowing Scam Detection in $country")
+                    param.result = true
+                }
+            }
+        })
+        log("Overriding the Scam Detection country check in ${allowlist.name} ($mode)")
+    }
+
+    /**
+     *  How [hookSharpieCountry] should treat the country the Sharpie config carries
+     */
+    private fun sharpieCountryMode(): SharpieCountryMode {
+        val value = SystemProperties_get(SHARPIE_COUNTRY)?.trim()
+        return when {
+            value.isNullOrEmpty() -> SharpieCountryMode.ALLOW_ALL
+            value.equals("allow", ignoreCase = true) || value.equals("all", ignoreCase = true) ->
+                SharpieCountryMode.ALLOW_ALL
+            value.equals("off", ignoreCase = true) || value == "0" ||
+                    value.equals("false", ignoreCase = true) -> SharpieCountryMode.DIALER_DEFAULT
+            value.length == 2 -> SharpieCountryMode.FORCE_COUNTRY(value.uppercase(Locale.ROOT))
+            else -> SharpieCountryMode.ALLOW_ALL
+        }
+    }
+
+    private sealed class SharpieCountryMode {
+        /** Leave Dialer's own allowlist check in charge. */
+        data object DIALER_DEFAULT: SharpieCountryMode()
+        /** Accept every country the allowlist is asked about. */
+        data object ALLOW_ALL: SharpieCountryMode()
+        /** Only accept the config country when it is [country]. */
+        data class FORCE_COUNTRY(val country: String): SharpieCountryMode()
     }
 
     /**
