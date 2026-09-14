@@ -64,6 +64,15 @@ object AiCoreHooks: XposedHooks {
      *  `File key <hash> not found`), and the requests the on device safety client makes.
      */
     private const val LOG_MDD_DOWNLOAD = "persist.aicore.log_mdd_download"
+    /**
+     *  Set to any value to move AICore's model store aside once so it is rebuilt from the manifest
+     *  the repository currently serves. The store keeps the per file keys that were derived from
+     *  the manifest it was provisioned with, and AICore does not refresh them while the store is
+     *  not empty, so a manifest that changed after provisioning leaves every download failing with
+     *  `File key <hash> not found`.
+     */
+    private const val RESET_MODEL_STORE = "persist.aicore.reset_model_store"
+
     @Volatile
     private var changedInferenceServiceUnbindTimeout = false
 
@@ -84,6 +93,7 @@ object AiCoreHooks: XposedHooks {
         hookFeatureVisibility(loadPackageParam)
         hookForcedManifestRefresh(loadPackageParam)
         hookFlagOverrides(loadPackageParam)
+        resetModelStore(loadPackageParam)
         hookMddDownloadDiagnostics(loadPackageParam)
         if (!SystemProperties_getBoolean(AICORE_UNLOAD_INFERENCE, false)) return
         val onInferenceServiceDisconnected = dexKit(loadPackageParam)
@@ -428,6 +438,49 @@ object AiCoreHooks: XposedHooks {
     private val loggedFlags = mutableSetOf<String>()
 
     private const val MAX_LOGGED_FLAGS = 400
+
+    /**
+     *  Moves the model store aside so AICore re-provisions its groups (and the file keys derived
+     *  from the manifest) from the manifest served now, instead of keeping the ones written when
+     *  the store was first provisioned.
+     */
+    private fun resetModelStore(loadPackageParam: LoadPackageParam) {
+        if (!propertyEnabled(RESET_MODEL_STORE)) return
+        runCatching {
+            val dataDir = File("/data/data/${loadPackageParam.packageName}/files")
+            val backup = findFile(dataDir, "filegroupstore.pb.pcs-reset")
+            if (backup != null) {
+                log("AICore model store was already reset ($RESET_MODEL_STORE can be cleared), " +
+                        "backup at ${backup.absolutePath}")
+                return@runCatching
+            }
+            val store = findFile(dataDir, "filegroupstore.pb") ?: run {
+                log("Unable to find the AICore model store in ${dataDir.absolutePath}")
+                return@runCatching
+            }
+            val target = File(store.absolutePath + ".pcs-reset")
+            store.renameTo(target)
+            log("Reset the AICore model store: ${store.absolutePath} -> ${target.absolutePath}")
+        }.onFailure {
+            log("Unable to reset the AICore model store: $it")
+        }
+    }
+
+    /**
+     *  Finds a file by name in the (nested) app data directory, which is where AICore keeps its
+     *  model store.
+     */
+    private fun findFile(directory: File, name: String, depth: Int = 0): File? {
+        if (!directory.isDirectory || depth > MAX_SEARCH_DEPTH) return null
+        val children = directory.listFiles() ?: return null
+        children.firstOrNull { it.isFile && it.name == name }?.let { return it }
+        children.filter { it.isDirectory }.forEach { child ->
+            findFile(child, name, depth + 1)?.let { return it }
+        }
+        return null
+    }
+
+    private const val MAX_SEARCH_DEPTH = 5
 
     /**
      *  A model file group is downloaded by resolving the file keys its manifest entry lists
