@@ -134,7 +134,7 @@ object PhoneHooks: GrpcHooks() {
                 hookMethod(method)
             }
         }
-        val types = listOf(Double::class.java, Long::class.java, String::class.java, Boolean::class.java)
+        val types = listOf(Long::class.java, String::class.java, Boolean::class.java)
         types.forEach(hookReturnType)
     }
 
