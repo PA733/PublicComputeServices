@@ -27,6 +27,7 @@ import java.lang.reflect.Modifier
 import java.lang.reflect.Proxy
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicLong
 
 object PhoneHooks: GrpcHooks() {
@@ -364,20 +365,16 @@ object PhoneHooks: GrpcHooks() {
         }
         XposedBridge.hookMethod(isSimCountryAllowed, object: XC_MethodHook() {
             override fun afterHookedMethod(param: MethodHookParam) {
-                if (param.result == true) return
                 val country = param.args[0] as? String ?: return
                 val allowed = when (mode) {
-                    SharpieCountryMode.DIALER_DEFAULT -> false
+                    SharpieCountryMode.DIALER_DEFAULT -> return
                     SharpieCountryMode.ALLOW_ALL -> true
-                    is SharpieCountryMode.FORCE_COUNTRY -> {
-                        (param.args[1] as? List<*>)?.any {
-                            it?.toString()?.equals(mode.country, ignoreCase = true) == true
-                        } == true
-                    }
+                    is SharpieCountryMode.FORCE_COUNTRY ->
+                        country.equals(mode.country, ignoreCase = true)
                 }
-                if (allowed) {
-                    log("Allowing Scam Detection in $country")
-                    param.result = true
+                if (param.result != allowed) {
+                    log("Scam Detection country override for $country: allowed=$allowed")
+                    param.result = allowed
                 }
             }
         })
@@ -508,9 +505,9 @@ object PhoneHooks: GrpcHooks() {
     /**
      *  Dialer builds the "Problem downloading required resources" banner for the GACS flow as soon
      *  as the unconditional resources banner flag is set, regardless of whether that flow can
-     *  actually run. Disable that flag, the stuck download banner and the GACS manual screening
-     *  flag on the settings data source when the duplex model is forced, so a banner for a model
-     *  that is not in use is never built.
+     *  actually run. Disable that flag and the GACS manual screening/agentic flags on the settings
+     *  data source when the duplex model is forced. Keep enableFixForStuckDownloadingBanner under
+     *  Dialer's control: it corrects download status rather than enabling a GACS-only banner.
      */
     private fun LoadPackageParam.hookDobbySettings(dexKit: DexKitBridge, settings: PhoneSettings) {
         if (!settings.dobbyEnabled) return
@@ -558,12 +555,16 @@ object PhoneHooks: GrpcHooks() {
      */
     private fun Class<*>.constantProvider(value: Any): Any {
         return Proxy.newProxyInstance(classLoader, arrayOf(this)) { proxy, method, args ->
-            when (method.name) {
-                "a" -> value
-                "equals" -> args?.firstOrNull() === proxy
-                "hashCode" -> System.identityHashCode(proxy)
-                "toString" -> "PCS constant provider ($value)"
-                else -> null
+            when {
+                method.name == "equals" && method.parameterTypes.contentEquals(
+                    arrayOf(Any::class.java)
+                ) -> args?.firstOrNull() === proxy
+                method.name == "hashCode" && method.parameterCount == 0 ->
+                    System.identityHashCode(proxy)
+                method.name == "toString" && method.parameterCount == 0 ->
+                    "PCS constant provider ($value)"
+                method.parameterCount == 0 && method.returnType.accepts(value) -> value
+                else -> throw UnsupportedOperationException("Unsupported provider method: $method")
             }
         }
     }
@@ -614,15 +615,20 @@ object PhoneHooks: GrpcHooks() {
             return
         }
         val downloader = downloaderField.type
-        val downloadMethod = downloader.declaredMethods.firstOrNull {
-            it.parameterCount == 0 && !Modifier.isStatic(it.modifiers) && it.returnType != Void.TYPE
+        // downloadNecessaryModels returns a ListenableFuture (obfuscated, but still a Future).
+        // Reject ambiguous versions instead of picking an arbitrary getter by reflection order.
+        val downloadMethod = downloader.declaredMethods.singleOrNull {
+            it.parameterCount == 0 && !Modifier.isStatic(it.modifiers) &&
+                    !it.isBridge && !it.isSynthetic &&
+                    Future::class.java.isAssignableFrom(it.returnType)
         } ?: run {
-            log("Unable to find the Xatu model download trigger in ${downloader.name}")
+            log("Unable to uniquely identify the Xatu model download trigger in ${downloader.name}")
             return
         }
         // The data source "load" is the accessor returning the same future type as the downloader
-        val loadMethod = dataSource.declaredMethods.firstOrNull {
+        val loadMethod = dataSource.declaredMethods.singleOrNull {
             it.parameterCount == 0 && !Modifier.isStatic(it.modifiers) &&
+                    !it.isBridge && !it.isSynthetic &&
                     it.returnType == downloadMethod.returnType
         }
         val trigger = object: XC_MethodHook() {
@@ -680,10 +686,15 @@ object PhoneHooks: GrpcHooks() {
             log("Leaving Dialer's MDD connectivity requirement alone")
             return
         }
-        val modelFileName = settings.xatuModels.fromBase64()
-            .toString(Charsets.ISO_8859_1)
-            .let { XATU_MODEL_URL.find(it)?.value }
-            ?.substringAfterLast('/') ?: run {
+        val modelFileName = try {
+            settings.xatuModels.fromBase64()
+                .toString(Charsets.ISO_8859_1)
+                .let { XATU_MODEL_URL.find(it)?.value }
+                ?.substringAfterLast('/')
+        } catch (e: Exception) {
+            log("Unable to decode the Direct My Call model manifest: $e")
+            return
+        } ?: run {
             log("Unable to find the Direct My Call model URL")
             return
         }
@@ -1002,9 +1013,8 @@ object PhoneHooks: GrpcHooks() {
     }
 
     private fun String.getListManifestOrNull(id: String): ByteArray? {
-        val rawManifest = fromBase64()
         return try {
-            PcsManifestList.parseFrom(rawManifest)
+            PcsManifestList.parseFrom(fromBase64())
                 .manifestList.firstOrNull { it.id.startsWith(id) }?.manifest?.toByteArray()
         } catch (e: Exception) {
             null
