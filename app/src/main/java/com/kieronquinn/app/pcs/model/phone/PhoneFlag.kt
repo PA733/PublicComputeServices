@@ -46,13 +46,22 @@ enum class PhoneFlag(val flagPackage: FlagPackage, val flag: String) {
     CALL_RECORDING_FORCE_OVERRIDE_ENABLED(FlagPackage.DIALER, "G__force_within_call_recording_geofence_value"),
     CALL_RECORDING_CROSBY_ENABLED(FlagPackage.DIALER, "G__force_within_crosby_geofence_value"),
     CALL_RECORDING_FERMAT_DISABLE(FlagPackage.DIALER_DIRECTBOOT, "45730953"),
+    CALL_SCREEN_I18N_TIDEPODS(FlagPackage.DIALER, "enable_call_screen_i18n_tidepods"),
     ;
 
     companion object {
         fun getOrNull(flagPackage: String, flag: String): PhoneFlag? {
-            return entries.firstOrNull {
+            entries.firstOrNull {
                 it.flagPackage.packageName == flagPackage && it.flag == flag
+            }?.let { return it }
+            // Named flags (`CallScreenI18n__default_manifest_file_flag`, `G__enable_call_recording`,
+            // ...) belong to a single experiment, but Dialer reads them from a variety of packages
+            // (the Direct Boot and shared variants), so fall back to matching on the name alone.
+            // Numeric flags are excluded as their IDs are only unique within a package.
+            if (flag.any { it.isLetter() }) {
+                return entries.firstOrNull { it.flag == flag }
             }
+            return null
         }
     }
 }
