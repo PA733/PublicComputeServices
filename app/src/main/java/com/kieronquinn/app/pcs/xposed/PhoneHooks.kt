@@ -195,7 +195,7 @@ object PhoneHooks: GrpcHooks() {
             PhoneFlag.DOBBY_DOWNLOAD_PATH -> settings.dobbyUrl?.takeIf {
                 settings.dobbyEnabled
             }?.decodeRawBase64()
-            PhoneFlag.DOBBY_DUPLEX_FILES -> settings.dobbyDuplexFiles
+            PhoneFlag.DOBBY_DUPLEX_FILES, PhoneFlag.DOBBY_MODELS -> settings.dobbyDuplexFiles
                 ?.takeIf { settings.dobbyEnabled }
                 ?.getListManifestOrNull(settings.dobbyRegion.locale)
                 ?.reflectParseProto(originalValue?.javaClass ?: return null)

@@ -4,6 +4,7 @@ import com.kieronquinn.app.pcs.model.FlagPackage
 
 enum class PhoneFlag(val flagPackage: FlagPackage, val flag: String) {
     DOBBY_DUPLEX_FILES(FlagPackage.DIALER_DIRECTBOOT, "45381883"),
+    DOBBY_MODELS(FlagPackage.DIALER, "CallScreenI18n__default_manifest_file_flag"),
     DOBBY_DOWNLOAD_PATH(FlagPackage.DIALER_DIRECTBOOT, "45628211"),
     DOBBY_IS_USER_IN_US(FlagPackage.DIALER_DIRECTBOOT, "45628184"),
     DOBBY_IS_USER_IN_UK(FlagPackage.DIALER_DIRECTBOOT, "45628185"),
