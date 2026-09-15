@@ -75,6 +75,7 @@
     </application>
 
     <queries>
+        <package android:name="com.google.android.tts"/>
         <package android:name="com.google.android.apps.pixel.psi"/>
         <package android:name="com.google.android.apps.pixel.agent"/>
         <package android:name="com.google.android.dialer"/>

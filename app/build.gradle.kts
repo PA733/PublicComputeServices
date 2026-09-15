@@ -50,7 +50,8 @@ android {
         versionCode = tagCode
         versionName = tagName
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = providers.gradleProperty("pcsTestRunner")
+            .getOrElse("androidx.test.runner.AndroidJUnitRunner")
 
         buildConfigField("String", "TAG_NAME", "\"${tagName}\"")
     }
@@ -169,6 +170,7 @@ protobuf {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation(libs.androidx.core.ktx)
     compileOnly(libs.xposed)
     implementation(libs.okhttp)

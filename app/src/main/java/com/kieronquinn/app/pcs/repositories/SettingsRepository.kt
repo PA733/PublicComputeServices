@@ -47,12 +47,17 @@ interface SettingsRepository: BaseSettingsRepository {
         IE(R.string.screen_experiments_phone_feature_dobby_region_ie, "en-GB"), // Uses UK
         JP(R.string.screen_experiments_phone_feature_dobby_region_jp, "ja-JP"),
         AU(R.string.screen_experiments_phone_feature_dobby_region_au, "en-AU"),
-        IN(R.string.screen_experiments_phone_feature_dobby_region_in, getIndiaLocale());
+        IN(R.string.screen_experiments_phone_feature_dobby_region_in, getIndiaLocale()),
+        CN(R.string.screen_experiments_phone_feature_dobby_region_cn, "zh-CN");
+
+        /** Chinese reuses the US GACS resource manifest; recognition and speech are localized. */
+        val resourceLocale: String get() = if (this == CN) "en-US" else locale
+        val modelRegion: DobbyRegion get() = if (this == CN) US else this
 
         companion object {
             fun getDefault(): DobbyRegion {
                 val country = Locale.getDefault().country
-                return entries.firstOrNull { it.name == country } ?: US
+                return entries.firstOrNull { it != CN && it.name == country } ?: US
             }
         }
     }

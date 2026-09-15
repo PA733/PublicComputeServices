@@ -1,0 +1,116 @@
+[
+  {
+    "action": "Disclosure",
+    "audio_path": "disclosure2/o6.wav",
+    "english": "Hi, I'm Gemini on a recorded line. Can you please tell me your name and the reason for your call?",
+    "chinese": "您好，我是 Gemini，本次来电会被录音。请问您是哪位，来电有什么事？"
+  },
+  {
+    "action": "Fallback",
+    "audio_path": "fallback/agentic_1.wav",
+    "english": "I'm sorry, I didn't quite catch that. Could you repeat?",
+    "chinese": "抱歉，我刚才没有听清楚，请您再说一遍。"
+  },
+  {
+    "action": "CustomerRejectionBailout",
+    "audio_path": "customerrejectionbailout/agentic_1.wav",
+    "english": "Unfortunately the person you are calling can not take your call right now, have a nice day!",
+    "chinese": "抱歉，您拨打的用户现在无法接听电话。再见。"
+  },
+  {
+    "action": "ConnectToUserNotSpam",
+    "audio_path": "connecttousernotspam/agentic_1.wav",
+    "english": "Please wait while I connect your call.",
+    "chinese": "请稍等，我正在为您接通。"
+  },
+  {
+    "action": "KnownSpamBailout",
+    "audio_path": "knownspambailout/agentic_1.wav",
+    "english": "Unfortunately the person you are calling is not available right now. Have a nice day!",
+    "chinese": "抱歉，您拨打的用户现在无法接听电话。再见。"
+  },
+  {
+    "action": "JoinCall",
+    "audio_path": "joincall/agentic_1.wav",
+    "english": "Please wait while I transfer you.",
+    "chinese": "请稍等，正在为您转接。"
+  },
+  {
+    "action": "EndCall",
+    "audio_path": "endcall/agentic_1.wav",
+    "english": "Sorry, they can't take the call right now. Have a great day!",
+    "chinese": "抱歉，对方现在无法接听电话。再见。"
+  },
+  {
+    "action": "AskWhoIsThis",
+    "audio_path": "askwhoisthis/agentic_1.wav",
+    "english": "Who is this?",
+    "chinese": "请问您是哪位？"
+  },
+  {
+    "action": "AskWhoLookingFor",
+    "audio_path": "askwholookingfor/agentic_1.wav",
+    "english": "Who are you looking for?",
+    "chinese": "请问您找哪位？"
+  },
+  {
+    "action": "AskCompany",
+    "audio_path": "askcompany/agentic_1.wav",
+    "english": "Which company or organization are you with?",
+    "chinese": "请问您来自哪家公司或机构？"
+  },
+  {
+    "action": "AskReason",
+    "audio_path": "askreason/agentic_1.wav",
+    "english": "What is the reason for this call?",
+    "chinese": "请问您来电有什么事？"
+  },
+  {
+    "action": "AskIfSales",
+    "audio_path": "askifsales/agentic_1.wav",
+    "english": "Is this a sales call?",
+    "chinese": "请问这是推销电话吗？"
+  },
+  {
+    "action": "AskReferenceNumber",
+    "audio_path": "askreferencenumber/agentic_1.wav",
+    "english": "What is the reference number?",
+    "chinese": "请问相关的业务编号是多少？"
+  },
+  {
+    "action": "AskIfEmergency",
+    "audio_path": "askifemergency/agentic_1.wav",
+    "english": "Is this an emergency?",
+    "chinese": "请问这是紧急情况吗？"
+  },
+  {
+    "action": "AskCallbackNumber",
+    "audio_path": "askcallbacknumber/agentic_1.wav",
+    "english": "Could you please provide a call back number for the user to verify?",
+    "chinese": "请您留下回拨号码，供机主核实。"
+  },
+  {
+    "action": "RequestCallBackAndEndCall",
+    "audio_path": "requestcallbackandendcall/agentic_1.wav",
+    "english": "The person you're trying to reach can't talk right now, and asked you to call back later. Thanks, and goodbye.",
+    "chinese": "您拨打的用户现在不方便接听，请您稍后再打来。谢谢，再见。"
+  },
+  {
+    "action": "ReportSpamAndEndCallSpam",
+    "audio_path": "reportspamandendcallspam/agentic_1.wav",
+    "english": "Please remove this number from your mailing list and contact list. Thanks, and goodbye.",
+    "chinese": "请把这个号码从您的营销名单和联系人名单中删除。谢谢，再见。"
+  },
+  {
+    "action": "SuggestLeavingMessage",
+    "audio_path": "suggestleavingmessage/agentic_1.wav",
+    "english": "They're not available right now, but if you'd like you can leave a message now.",
+    "chinese": "对方现在无法接听，您可以留言。"
+  },
+  {
+    "action": "AcknowledgeAndGoodbye",
+    "audio_path": "acknowledgeandgoodbye/agentic_1.wav",
+    "english": "Okay got it, have a great day!",
+    "chinese": "好的，已经收到，谢谢，再见。"
+  }
+]

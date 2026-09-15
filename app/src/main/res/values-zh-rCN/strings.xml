@@ -157,4 +157,5 @@
     <string name="error_no_root">尚未赋予 Root 权限</string>
     <string name="error_no_xposed">Xposed 模块尚未启用，请确认您是否已启用了模块且重启了设备。</string>
     <string name="error_retry">重试</string>
+    <string name="screen_experiments_phone_feature_dobby_region_cn">简体中文</string>
 </resources>

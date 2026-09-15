@@ -1,0 +1,18 @@
+Dialer 238.0.977157916-publicbeta-pixel2026 / native GACS v4
+Selected test-call events; transcript logging is redacted by Dialer.
+
+09-15 13:55:56.221 13345 15362 I DialerSingletonScopedExternalsLogging: com.google.android.dialershared.externals.logging.SingletonScopedExternalsLogging.recordCallMethodInvocation:75 event: MEDIA_PLAYER_SET_DATA_SOURCE, function parameters: [/data/user/0/com.google.android.dialer/files/pcs-call-screen/zh-CN/ae2cd40e0bd3b208287a3f51/disclosure2/o6.wav,null], return value: <empty>
+09-15 13:56:04.508 13345 15117 I DialerAgenticCallScreenLlmInferenceTriggerProcessor: com.google.quality.views.extraction.kcube.bg.ondevice.modules.callassistant.agenticcallscreen.AgenticCallScreenLlmInferenceTriggerProcessor.consume:86 AgenticCallScreenLlmInferenceTriggerProcessor received EVENT_AGENTIC_TRIGGER_INFERENCE
+09-15 13:56:04.508 13345 15117 I DialerAgenticCallScreenLlmInferenceTriggerProcessor: com.google.quality.views.extraction.kcube.bg.ondevice.modules.callassistant.agenticcallscreen.AgenticCallScreenLlmInferenceTriggerProcessor.publishTriggerInference:104 AgenticCallScreenLlmInferenceTriggerProcessor: Triggering inference with params:
+09-15 13:56:04.508 13345 15117 I DialerAgenticCallScreenLlmInferenceTriggerProcessor: remoteLanguage: Chinese
+09-15 13:56:04.508 13345 15117 I DialerAgenticCallScreenLlmInferenceTriggerProcessor: userPreferredLanguage: Chinese
+09-15 13:56:04.508 13345 15117 I DialerAgenticCallScreenLlmInferenceTriggerProcessor: market: China
+09-15 13:56:04.508 13345 15117 I DialerAgenticCallScreenLlmInferenceTriggerProcessor: transcript:
+09-15 13:56:04.508 13345 15117 I DialerAgenticCallScreenLlmInferenceTriggerProcessor: [[Bot] Greeting
+09-15 13:56:04.508 13345 15117 I DialerAgenticCallScreenLlmInferenceTriggerProcessor: [Remote] ***]
+09-15 13:56:04.654 13345 15117 I DialerAgenticCallScreenLlmExtractionProcessor: com.google.quality.views.extraction.kcube.bg.ondevice.modules.callassistant.agenticcallscreen.AgenticCallScreenLlmExtractionProcessor.consume:92 AgenticLlmExtractionProcessor received EVENT_LLM_INFERENCE_RESPONSE
+09-15 13:56:04.654 13345 15117 I DialerAgenticCallScreenLlmExtractionProcessor: com.google.quality.views.extraction.kcube.bg.ondevice.modules.callassistant.agenticcallscreen.AgenticCallScreenLlmExtractionProcessor.publishNewModelVerdict:182 AgenticLlmExtractionProcessor received response text: Who
+09-15 13:56:04.656 13345 15117 I DialerAgenticCallScreenActionExecutorProcessor: com.google.quality.views.extraction.kcube.bg.ondevice.modules.callassistant.agenticcallscreen.AgenticCallScreenActionExecutorProcessor.handleNewModelVerdict:755 Cached new model verdict: action=SPEAK, intent=AskWhoIsThis
+09-15 13:56:06.519 13345 15117 I DialerAgenticCallScreenActionExecutorProcessor: com.google.quality.views.extraction.kcube.bg.ondevice.modules.callassistant.agenticcallscreen.AgenticCallScreenActionExecutorProcessor.getCallActionFromVerdict:546 Ignoring action: SPEAK
+09-15 13:56:06.519 13345 15117 I DialerAgenticCallScreenActionExecutorProcessor: com.google.quality.views.extraction.kcube.bg.ondevice.modules.callassistant.agenticcallscreen.AgenticCallScreenActionExecutorProcessor.calculateScoobyOverride$<anonymous>:581 Scooby signal is USER marked NOT_SPAM. Overriding action to START_RINGING.
+09-15 13:56:06.522 13345 15117 I DialerAgenticCallScreenActionExecutorProcessor: com.google.quality.views.extraction.kcube.bg.ondevice.modules.callassistant.agenticcallscreen.AgenticCallScreenActionExecutorProcessor.publishFlowOutputFromVerdict:528 Emitting action SPEAK, final callAction 2

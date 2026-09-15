@@ -169,4 +169,5 @@
     <string name="error_no_xposed">The Xposed module is not enabled. Please make sure you have enabled the Xposed module and rebooted.</string>
     <string name="error_retry">Retry</string>
 
+    <string name="screen_experiments_phone_feature_dobby_region_cn">Chinese (Simplified)</string>
 </resources>

@@ -28,6 +28,7 @@ features, please see the [FAQs](https://github.com/KieronQuinn/PublicComputeServ
 - Automatically keep manifests in sync with your selected repository by checking for updates once a 
 day and applying them.
 - Experiments to tweak Google Phone and Magic Cue's features
+- Experimental [Simplified Chinese Call Screen](docs/call-screen-chinese.md) using GACS
 - Enable Now Playing notification when new Now Playing is enabled, allowing Now Playing history apps to work again
 - Enable debug logging for hooked Google apps, useful for observing features such as Magic Cue
 - Optionally unload AICore's inference service after five minutes of inactivity, freeing model memory

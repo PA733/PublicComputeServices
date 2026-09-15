@@ -77,6 +77,7 @@ object PhoneHooks: GrpcHooks() {
         hookFlagDataStore(dexKit, settings)
         hookSharpieCountry(dexKit, settings)
         hookCallScreen(dexKit, settings)
+        ChineseCallScreenHooks.install(this, application, dexKit, settings)
         hookDobbyModel(dexKit, settings)
         hookDobbySettings(dexKit, settings)
         hookXatuModelDownload(dexKit, settings)
@@ -279,7 +280,10 @@ object PhoneHooks: GrpcHooks() {
      *  Whether Dialer should pick its own Call Screen model (agentic/GACS) rather than the
      *  packaged duplex model.
      */
-    private fun callScreenAgenticMode(): CallScreenMode {
+    private fun callScreenAgenticMode(settings: PhoneSettings): CallScreenMode {
+        if (settings.dobbyEnabled && settings.dobbyRegion == DobbyRegion.CN) {
+            return CallScreenMode.FORCE_AGENTIC
+        }
         val value = SystemProperties_get(CALL_SCREEN_AGENTIC) ?: return CallScreenMode.DUPLEX
         if (value.isBlank() || value == "0" || value.equals("false", ignoreCase = true)) {
             return CallScreenMode.DUPLEX
@@ -312,7 +316,7 @@ object PhoneHooks: GrpcHooks() {
                 append(", dobbyUrl=${settings.dobbyUrl != null}")
                 append(", manifestSize=${settings.dobbyDuplexFiles?.length ?: 0}")
                 append(", region=${settings.dobbyRegion.locale}")
-                append(", entry=${settings.dobbyDuplexFiles?.getListManifestOrNull(settings.dobbyRegion.locale) != null}")
+                append(", entry=${settings.dobbyDuplexFiles?.getListManifestOrNull(settings.dobbyRegion.resourceLocale) != null}")
             }
             else -> "not enabled in settings"
         }
@@ -445,7 +449,7 @@ object PhoneHooks: GrpcHooks() {
      */
     private fun LoadPackageParam.hookDobbyModel(dexKit: DexKitBridge, settings: PhoneSettings) {
         if (!settings.dobbyEnabled) return
-        val mode = callScreenAgenticMode()
+        val mode = callScreenAgenticMode(settings)
         if (mode == CallScreenMode.DIALER_DEFAULT) {
             log("Leaving Dialer's Call Screen model choice alone (agentic mode requested)")
             return
@@ -477,8 +481,8 @@ object PhoneHooks: GrpcHooks() {
         val agentic = flagType.constantProvider(mode == CallScreenMode.FORCE_AGENTIC)
         // Dialer's own region flags are not reliable without the experiment overrides, so select
         // the model from the region PCS is configured for
-        val regionIndex = when (settings.dobbyRegion) {
-            DobbyRegion.US -> 4
+        val regionIndex = when (settings.dobbyRegion.modelRegion) {
+            DobbyRegion.US, DobbyRegion.CN -> 4
             DobbyRegion.GB -> 5
             DobbyRegion.JP -> 6
             DobbyRegion.CA -> 7
@@ -510,7 +514,7 @@ object PhoneHooks: GrpcHooks() {
      */
     private fun LoadPackageParam.hookDobbySettings(dexKit: DexKitBridge, settings: PhoneSettings) {
         if (!settings.dobbyEnabled) return
-        if (callScreenAgenticMode() != CallScreenMode.DUPLEX) {
+        if (callScreenAgenticMode(settings) != CallScreenMode.DUPLEX) {
             log("Leaving Dialer's GACS banner flags alone (agentic mode requested)")
             return
         }
@@ -815,10 +819,10 @@ object PhoneHooks: GrpcHooks() {
             }?.decodeRawBase64()
             PhoneFlag.DOBBY_DUPLEX_FILES, PhoneFlag.DOBBY_MODELS -> settings.dobbyDuplexFiles
                 ?.takeIf { settings.dobbyEnabled }
-                ?.getListManifestOrNull(settings.dobbyRegion.locale)
+                ?.getListManifestOrNull(settings.dobbyRegion.resourceLocale)
                 ?.reflectParseProto(originalValue?.javaClass ?: return null)
             PhoneFlag.DOBBY_IS_USER_IN_US -> if (settings.dobbyEnabled) {
-                settings.dobbyRegion == DobbyRegion.US
+                settings.dobbyRegion.modelRegion == DobbyRegion.US
             } else null
             PhoneFlag.DOBBY_IS_USER_IN_UK -> if (settings.dobbyEnabled) {
                 settings.dobbyRegion == DobbyRegion.GB
@@ -850,7 +854,7 @@ object PhoneHooks: GrpcHooks() {
                 ?.reflectParseProto(originalValue?.javaClass ?: return null)
             PhoneFlag.BEESLY_MODEL_FILENAME_US -> settings.beesly
                 ?.takeIf { settings.beeslyEnabled && settings.beeslyRegion != BeeslyRegion.GB }
-                ?.getListManifestOrNull(settings.dobbyRegion.locale)
+                ?.getListManifestOrNull(settings.dobbyRegion.resourceLocale)
                 ?.let { String(it) }
             PhoneFlag.BEESLY_MODEL_FILENAME_UK -> settings.beesly
                 ?.takeIf { settings.beeslyEnabled && settings.beeslyRegion == BeeslyRegion.GB }
@@ -959,7 +963,7 @@ object PhoneHooks: GrpcHooks() {
                     "url=${settings.dobbyUrl.describeDobbyUrl()}"
         )
         log("Dobby manifest: ${settings.dobbyDuplexFiles.describeManifestEntries()}")
-        settings.dobbyDuplexFiles?.getListManifestOrNull(settings.dobbyRegion.locale)?.let {
+        settings.dobbyDuplexFiles?.getListManifestOrNull(settings.dobbyRegion.resourceLocale)?.let {
             log("Dobby manifest entry (${it.size} bytes): ${it.describeBytes()}")
         }
     }

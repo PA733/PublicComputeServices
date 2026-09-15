@@ -1,0 +1,48 @@
+syntax = "proto2";
+package pcs.gacs;
+option java_package = "com.kieronquinn.app.pcs.model.gacs";
+option java_outer_classname = "GacsLocalization";
+
+// Android Speech Services returns each availability state in a separate list.
+message SodaLanguagePackList {
+  repeated SodaLanguagePack packs = 1;
+}
+
+message SodaLanguagePack {
+  optional string locale = 1;
+  optional int32 version = 4;
+}
+
+message SodaLanguagePackInfo {
+  optional int32 availability = 1;
+  optional int32 version = 2;
+  optional string locale = 3;
+}
+
+message SodaLanguagePackCache {
+  map<string, SodaLanguagePackInfo> packs = 1;
+}
+
+// Partial schema: protobuf retains all fields we do not interpret. These field numbers
+// are shared by Dialer's GACS robot intent specs, independently of Java obfuscation.
+message RobotIntentSpecs {
+  repeated RobotIntent intents = 3;
+}
+message RobotIntent {
+  optional string name = 1;
+  repeated Speech speech = 11;
+  repeated Voice voice = 12;
+  optional string chip_label = 26;
+  optional string accessible_label = 32;
+}
+message Speech {
+  optional Recording recording = 2;
+  optional string locale = 15;
+}
+message Recording {
+  optional string path = 1;
+  optional string text = 2;
+}
+message Voice {
+  optional string locale = 2;
+}
