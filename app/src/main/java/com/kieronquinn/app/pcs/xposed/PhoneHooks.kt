@@ -9,9 +9,10 @@ import com.kieronquinn.app.pcs.providers.PhoneSettingsProvider
 import com.kieronquinn.app.pcs.repositories.AstreaRepository.Companion.PORT_PHONE
 import com.kieronquinn.app.pcs.repositories.DeviceConfigPropertiesRepository.Companion.PHONE_ENABLED
 import com.kieronquinn.app.pcs.repositories.SettingsRepository.BeeslyRegion
+import com.kieronquinn.app.pcs.repositories.SettingsRepository.CallScreenMode
 import com.kieronquinn.app.pcs.repositories.SettingsRepository.DobbyRegion
 import com.kieronquinn.app.pcs.repositories.SettingsRepository.PatrickPhase
-import com.kieronquinn.app.pcs.utils.extensions.SystemProperties_get
+import com.kieronquinn.app.pcs.repositories.SettingsRepository.SharpieCountryMode
 import com.kieronquinn.app.pcs.utils.extensions.SystemProperties_getBoolean
 import com.kieronquinn.app.pcs.utils.extensions.loadDexKit
 import com.kieronquinn.app.pcs.utils.extensions.reflectParseProto
@@ -25,28 +26,11 @@ import org.luckypray.dexkit.result.MethodData
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.lang.reflect.Proxy
-import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicLong
 
 object PhoneHooks: GrpcHooks() {
-
-    /**
-     *  Selects the Call Screen model Dialer uses. Unset, `0` or `false` forces the older duplex
-     *  model that carries its own screening audio, `force` picks the agentic GACS model backed by
-     *  AICore even when Dialer's own experiment flags are off, and any other value leaves Dialer's
-     *  flags in charge.
-     */
-    private const val CALL_SCREEN_AGENTIC = "persist.pcs.call_screen_agentic"
-
-    /**
-     *  Scam Detection (Sharpie) only runs when the SIM country is in an allowlist baked into the
-     *  Sharpie config, so a device with a SIM from an unsupported country (eg CN) gets the
-     *  "Scam Detection is not available" banner and never downloads the Hades protections. This
-     *  property selects how that country is handled, see [sharpieCountryMode].
-     */
-    private const val SHARPIE_COUNTRY = "persist.pcs.sharpie_country"
 
     override val tag = "PhoneHooks"
     override val applicationClassName = "com.android.dialer.Dialer_Application"
@@ -278,34 +262,6 @@ object PhoneHooks: GrpcHooks() {
     }
 
     /**
-     *  Whether Dialer should pick its own Call Screen model (agentic/GACS) rather than the
-     *  packaged duplex model.
-     */
-    private fun callScreenAgenticMode(settings: PhoneSettings): CallScreenMode {
-        if (settings.dobbyEnabled && settings.dobbyRegion == DobbyRegion.CN) {
-            return CallScreenMode.FORCE_AGENTIC
-        }
-        val value = SystemProperties_get(CALL_SCREEN_AGENTIC) ?: return CallScreenMode.DUPLEX
-        if (value.isBlank() || value == "0" || value.equals("false", ignoreCase = true)) {
-            return CallScreenMode.DUPLEX
-        }
-        return if (value.equals("force", ignoreCase = true)) {
-            CallScreenMode.FORCE_AGENTIC
-        } else {
-            CallScreenMode.DIALER_DEFAULT
-        }
-    }
-
-    private enum class CallScreenMode {
-        /** Force the older duplex model that carries its own screening audio. */
-        DUPLEX,
-        /** Leave Dialer's own experiment flags in charge of the model choice. */
-        DIALER_DEFAULT,
-        /** Force the agentic GACS model even if Dialer's flags are off. */
-        FORCE_AGENTIC
-    }
-
-    /**
      *  Explains why no value could be built for a tracked flag, so the reason is visible in logs
      *  without having to dump the flag data itself
      */
@@ -334,16 +290,10 @@ object PhoneHooks: GrpcHooks() {
      *  The country comes from `TelephonyManager.getSimCountryIso()` and is carried in the config
      *  (`I18nConfig.detectionCountryLegacy`), so the check is replaced here rather than the
      *  telephony API, which other Dialer features rely on.
-     *
-     *  `persist.pcs.sharpie_country` selects the behaviour:
-     *
-     *  - unset / `allow` - accept any country (default)
-     *  - `off` / `0` / `false` - leave Dialer's check alone
-     *  - a country code (`US`, `GB`, ...) - only accept that country
      */
     private fun LoadPackageParam.hookSharpieCountry(dexKit: DexKitBridge, settings: PhoneSettings) {
         if (!settings.sharpieEnabled) return
-        val mode = sharpieCountryMode()
+        val mode = settings.sharpieCountryMode
         if (mode == SharpieCountryMode.DIALER_DEFAULT) {
             log("Leaving Dialer's Scam Detection country check alone")
             return
@@ -366,12 +316,7 @@ object PhoneHooks: GrpcHooks() {
         XposedBridge.hookMethod(isSimCountryAllowed, object: XC_MethodHook() {
             override fun afterHookedMethod(param: MethodHookParam) {
                 val country = param.args[0] as? String ?: return
-                val allowed = when (mode) {
-                    SharpieCountryMode.DIALER_DEFAULT -> return
-                    SharpieCountryMode.ALLOW_ALL -> true
-                    is SharpieCountryMode.FORCE_COUNTRY ->
-                        country.equals(mode.country, ignoreCase = true)
-                }
+                val allowed = settings.getSharpieCountryOverride(country) ?: return
                 if (param.result != allowed) {
                     log("Scam Detection country override for $country: allowed=$allowed")
                     param.result = allowed
@@ -379,31 +324,6 @@ object PhoneHooks: GrpcHooks() {
             }
         })
         log("Overriding the Scam Detection country check in ${allowlist.name} ($mode)")
-    }
-
-    /**
-     *  How [hookSharpieCountry] should treat the country the Sharpie config carries
-     */
-    private fun sharpieCountryMode(): SharpieCountryMode {
-        val value = SystemProperties_get(SHARPIE_COUNTRY)?.trim()
-        return when {
-            value.isNullOrEmpty() -> SharpieCountryMode.ALLOW_ALL
-            value.equals("allow", ignoreCase = true) || value.equals("all", ignoreCase = true) ->
-                SharpieCountryMode.ALLOW_ALL
-            value.equals("off", ignoreCase = true) || value == "0" ||
-                    value.equals("false", ignoreCase = true) -> SharpieCountryMode.DIALER_DEFAULT
-            value.length == 2 -> SharpieCountryMode.FORCE_COUNTRY(value.uppercase(Locale.ROOT))
-            else -> SharpieCountryMode.ALLOW_ALL
-        }
-    }
-
-    private sealed class SharpieCountryMode {
-        /** Leave Dialer's own allowlist check in charge. */
-        data object DIALER_DEFAULT: SharpieCountryMode()
-        /** Accept every country the allowlist is asked about. */
-        data object ALLOW_ALL: SharpieCountryMode()
-        /** Only accept the config country when it is [country]. */
-        data class FORCE_COUNTRY(val country: String): SharpieCountryMode()
     }
 
     /**
@@ -439,14 +359,14 @@ object PhoneHooks: GrpcHooks() {
      *  AICore's GACS feature 305) when `enableAgenticCallScreen` is set, or when
      *  `enableGacsManualScreening` is set in a region where manual screening is supported, and
      *  otherwise falls back to the earlier duplex model. Force the two flags the model picker is
-     *  built with to the mode [callScreenAgenticMode] selects, so the model does not depend on
+     *  built with to [PhoneSettings.effectiveCallScreenMode], so the model does not depend on
      *  experiment flags the module cannot reliably pin. The flags are exposed as providers and
      *  read through Dialer's obfuscated experiment layer, which the flag value overrides do not
      *  reach, so replace the providers at construction time instead.
      */
     private fun LoadPackageParam.hookDobbyModel(dexKit: DexKitBridge, settings: PhoneSettings) {
         if (!settings.dobbyEnabled) return
-        val mode = callScreenAgenticMode(settings)
+        val mode = settings.effectiveCallScreenMode
         if (mode == CallScreenMode.DIALER_DEFAULT) {
             log("Leaving Dialer's Call Screen model choice alone (agentic mode requested)")
             return
@@ -511,7 +431,7 @@ object PhoneHooks: GrpcHooks() {
      */
     private fun LoadPackageParam.hookDobbySettings(dexKit: DexKitBridge, settings: PhoneSettings) {
         if (!settings.dobbyEnabled) return
-        if (callScreenAgenticMode(settings) != CallScreenMode.DUPLEX) {
+        if (settings.effectiveCallScreenMode != CallScreenMode.DUPLEX) {
             log("Leaving Dialer's GACS banner flags alone (agentic mode requested)")
             return
         }
@@ -675,14 +595,14 @@ object PhoneHooks: GrpcHooks() {
      *
      *  Dialer's download queue (`MddFileDownloader`'s queue) decides that from a requirement on
      *  each queued request, so treat the Direct My Call model request as having no requirement once
-     *  it is queued. `persist.pcs.mdd_metered=off` leaves Dialer's check alone.
+     *  it is queued when metered downloads are enabled in the settings.
      */
     private fun LoadPackageParam.hookXatuMddConnectivity(
         dexKit: DexKitBridge,
         settings: PhoneSettings
     ) {
         if (!settings.xatuEnabled || settings.xatuModels == null) return
-        if (SystemProperties_get(MDD_METERED)?.equals("off", ignoreCase = true) == true) {
+        if (!settings.xatuAllowMetered) {
             log("Leaving Dialer's MDD connectivity requirement alone")
             return
         }
@@ -766,8 +686,6 @@ object PhoneHooks: GrpcHooks() {
             }
         }
     }
-
-    private const val MDD_METERED = "persist.pcs.mdd_metered"
 
     private val XATU_MODEL_URL = Regex("""https://[\x21-\x7e]{5,300}?\.zip""")
 

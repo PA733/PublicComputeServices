@@ -14,6 +14,9 @@ interface SettingsRepository: BaseSettingsRepository {
     val autoSync: PcsSetting<Boolean>
 
     // Phone Flags
+    val phoneCallScreenMode: PcsSetting<CallScreenMode>
+    val phoneSharpieCountryMode: PcsSetting<SharpieCountryMode>
+    val phoneSharpieCountry: PcsSetting<String>
     val phoneSharpieEnabled: PcsSetting<Boolean>
     val phoneDobbyEnabled: PcsSetting<Boolean>
     val phoneDobbyUrl: PcsSetting<String>
@@ -26,6 +29,7 @@ interface SettingsRepository: BaseSettingsRepository {
     val phoneBeeslyRegion: PcsSetting<BeeslyRegion>
     val phoneNautilusEnabled: PcsSetting<Boolean>
     val phoneSonicEnabled: PcsSetting<Boolean>
+    val phoneXatuAllowMetered: PcsSetting<Boolean>
     val phoneXatuEnabled: PcsSetting<Boolean>
     val phoneXatuModels: PcsSetting<String>
     val phoneCallerTagsEnabled: PcsSetting<Boolean>
@@ -33,6 +37,18 @@ interface SettingsRepository: BaseSettingsRepository {
     val phoneExpressoEnabled: PcsSetting<Boolean>
     val phonePatrickPhase: PcsSetting<PatrickPhase>
     val phoneCallRecordingEnabled: PcsSetting<Boolean>
+
+    enum class CallScreenMode(@StringRes val label: Int) {
+        DUPLEX(R.string.screen_experiments_phone_call_screen_mode_duplex),
+        DIALER_DEFAULT(R.string.screen_experiments_phone_dialer_default),
+        FORCE_AGENTIC(R.string.screen_experiments_phone_call_screen_mode_agentic)
+    }
+
+    enum class SharpieCountryMode(@StringRes val label: Int) {
+        ALLOW_ALL(R.string.screen_experiments_phone_sharpie_country_all),
+        DIALER_DEFAULT(R.string.screen_experiments_phone_dialer_default),
+        FORCE_COUNTRY(R.string.screen_experiments_phone_sharpie_country_selected)
+    }
 
     enum class PatrickPhase(@StringRes val label: Int) {
         DISABLED(R.string.screen_experiments_phone_feature_patrick_disabled),
@@ -99,6 +115,15 @@ class SettingsRepositoryImpl(
         private const val KEY_AUTO_SYNC = "auto_sync"
         private const val DEFAULT_AUTO_SYNC = false
 
+        private const val KEY_PHONE_CALL_SCREEN_MODE = "phone_call_screen_mode"
+        private val DEFAULT_PHONE_CALL_SCREEN_MODE = SettingsRepository.CallScreenMode.DUPLEX
+
+        private const val KEY_PHONE_SHARPIE_COUNTRY_MODE = "phone_sharpie_country_mode"
+        private val DEFAULT_PHONE_SHARPIE_COUNTRY_MODE = SettingsRepository.SharpieCountryMode.ALLOW_ALL
+
+        private const val KEY_PHONE_SHARPIE_COUNTRY = "phone_sharpie_country"
+        private const val DEFAULT_PHONE_SHARPIE_COUNTRY = "US"
+
         private const val KEY_PHONE_SHARPIE_ENABLED = "phone_sharpie_enabled"
         private const val DEFAULT_PHONE_SHARPIE_ENABLED = false
 
@@ -135,6 +160,9 @@ class SettingsRepositoryImpl(
         private const val KEY_PHONE_SONIC_ENABLED = "phone_sonic_enabled"
         private const val DEFAULT_PHONE_SONIC_ENABLED = false
 
+        private const val KEY_PHONE_XATU_ALLOW_METERED = "phone_xatu_allow_metered"
+        private const val DEFAULT_PHONE_XATU_ALLOW_METERED = true
+
         private const val KEY_PHONE_XATU_ENABLED = "phone_xatu_enabled"
         private const val DEFAULT_PHONE_XATU_ENABLED = false
 
@@ -166,6 +194,9 @@ class SettingsRepositoryImpl(
 
     override val autoSync = boolean(KEY_AUTO_SYNC, DEFAULT_AUTO_SYNC)
 
+    override val phoneCallScreenMode = enum(KEY_PHONE_CALL_SCREEN_MODE, DEFAULT_PHONE_CALL_SCREEN_MODE)
+    override val phoneSharpieCountryMode = enum(KEY_PHONE_SHARPIE_COUNTRY_MODE, DEFAULT_PHONE_SHARPIE_COUNTRY_MODE)
+    override val phoneSharpieCountry = string(KEY_PHONE_SHARPIE_COUNTRY, DEFAULT_PHONE_SHARPIE_COUNTRY)
     override val phoneSharpieEnabled = boolean(KEY_PHONE_SHARPIE_ENABLED, DEFAULT_PHONE_SHARPIE_ENABLED)
     override val phoneDobbyEnabled = boolean(KEY_PHONE_DOBBY_ENABLED, DEFAULT_PHONE_DOBBY_ENABLED)
     override val phoneDobbyUrl = string(KEY_PHONE_DOBBY_URL, DEFAULT_PHONE_DOBBY_URL)
@@ -178,6 +209,7 @@ class SettingsRepositoryImpl(
     override val phoneBeeslyRegion = enum(KEY_PHONE_BEESLY_REGION, DEFAULT_PHONE_BEESLY_REGION)
     override val phoneNautilusEnabled = boolean(KEY_PHONE_NAUTILUS_ENABLED, DEFAULT_PHONE_NAUTILUS_ENABLED)
     override val phoneSonicEnabled = boolean(KEY_PHONE_SONIC_ENABLED, DEFAULT_PHONE_SONIC_ENABLED)
+    override val phoneXatuAllowMetered = boolean(KEY_PHONE_XATU_ALLOW_METERED, DEFAULT_PHONE_XATU_ALLOW_METERED)
     override val phoneXatuEnabled = boolean(KEY_PHONE_XATU_ENABLED, DEFAULT_PHONE_XATU_ENABLED)
     override val phoneXatuModels = string(KEY_PHONE_XATU_MODELS, DEFAULT_PHONE_XATU_MODELS)
     override val phoneCallerTagsEnabled = boolean(KEY_PHONE_CALLER_TAGS_ENABLED, DEFAULT_PHONE_CALLER_TAGS_ENABLED)

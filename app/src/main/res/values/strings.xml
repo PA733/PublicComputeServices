@@ -170,4 +170,16 @@
     <string name="error_retry">Retry</string>
 
     <string name="screen_experiments_phone_feature_dobby_region_cn">Chinese (Simplified)</string>
+    <string name="screen_experiments_phone_call_screen_mode">Call Screen Model</string>
+    <string name="screen_experiments_phone_call_screen_mode_duplex">Classic (Duplex)</string>
+    <string name="screen_experiments_phone_call_screen_mode_agentic">Agentic (requires AICore)</string>
+    <string name="screen_experiments_phone_dialer_default">Google Phone default</string>
+    <string name="screen_experiments_phone_sharpie_country_mode">Scam Detection Country Policy</string>
+    <string name="screen_experiments_phone_sharpie_country_all">Allow all countries</string>
+    <string name="screen_experiments_phone_sharpie_country_selected">Allow only the selected country</string>
+    <string name="screen_experiments_phone_sharpie_country">Scam Detection Country</string>
+    <string name="screen_experiments_phone_sharpie_country_summary">Only allow %1$s; this does not change your SIM country</string>
+    <string name="screen_experiments_phone_call_screen_mode_chinese">Chinese Call Screen requires Agentic (AICore)</string>
+    <string name="screen_experiments_phone_xatu_allow_metered">Download Direct My Call Models on Mobile Data</string>
+    <string name="screen_experiments_phone_xatu_allow_metered_summary">Allow model downloads on metered networks; data charges may apply</string>
 </resources>

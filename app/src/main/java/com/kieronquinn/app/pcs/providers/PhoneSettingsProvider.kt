@@ -83,7 +83,11 @@ class PhoneSettingsProvider: ContentProvider() {
         settings.phoneFermatEnabled.getSync(),
         settings.phoneExpressoEnabled.getSync(),
         settings.phonePatrickPhase.getSync(),
-        settings.phoneCallRecordingEnabled.getSync()
+        settings.phoneCallRecordingEnabled.getSync(),
+        callScreenMode = settings.phoneCallScreenMode.getSync(),
+        sharpieCountryMode = settings.phoneSharpieCountryMode.getSync(),
+        sharpieCountry = settings.phoneSharpieCountry.getSync(),
+        xatuAllowMetered = settings.phoneXatuAllowMetered.getSync()
     )
 
     private fun killAfterDelay() = Thread {
