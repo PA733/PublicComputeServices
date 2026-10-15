@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Base64
 import com.kieronquinn.app.pcs.model.PcsManifestList
 import com.kieronquinn.app.pcs.model.phone.PhoneFlag
+import com.kieronquinn.app.pcs.model.phone.FlagValueHolders
 import com.kieronquinn.app.pcs.model.phone.PhoneSettings
 import com.kieronquinn.app.pcs.providers.PhoneSettingsProvider
 import com.kieronquinn.app.pcs.repositories.AstreaRepository.Companion.PORT_PHONE
@@ -54,14 +55,13 @@ object PhoneHooks: GrpcHooks() {
         "com.android.dialer.multibindingsettings.impl.DialerSettingsActivity"
     override val port = PORT_PHONE
 
-    private val flagHolders = ConcurrentHashMap<PhoneFlag, MutableSet<Any>>()
     private val seenFlags = ConcurrentHashMap.newKeySet<String>()
+    private val isolatedFlags = ConcurrentHashMap.newKeySet<PhoneFlag>()
+    private val isolationFailures = ConcurrentHashMap.newKeySet<PhoneFlag>()
     private val missingFlags = ConcurrentHashMap.newKeySet<PhoneFlag>()
     private val appliedFlags = ConcurrentHashMap.newKeySet<PhoneFlag>()
     private val typeMismatches = ConcurrentHashMap.newKeySet<PhoneFlag>()
-    private val lateAssociations = ConcurrentHashMap.newKeySet<PhoneFlag>()
     private val unassociatedReads = ConcurrentHashMap.newKeySet<String>()
-    private val pendingFlag = ThreadLocal<PhoneFlag?>()
     private val lastXatuDownloadAttempt = AtomicLong(0)
 
     override fun isEnabled(): Boolean {
@@ -124,13 +124,20 @@ object PhoneHooks: GrpcHooks() {
             log("Unable to find Flag DataStore")
             return
         }
-        flagDataStores.forEach { hookFlagCreator(it, flagValueHolderClass) }
-        hookFlagValueHolder(flagValueHolderClass, flagValueHolderProtoMethod, settings)
+        val holders = try {
+            FlagValueHolders<PhoneFlag>(flagValueHolderClass)
+        } catch (e: Exception) {
+            log("Unable to isolate flag value holders: $e")
+            return
+        }
+        hookFlagValueHolder(flagValueHolderClass, flagValueHolderProtoMethod, settings, holders)
+        flagDataStores.forEach { hookFlagCreator(it, flagValueHolderClass, holders) }
     }
 
     private fun LoadPackageParam.hookFlagCreator(
         creator: Class<*>,
-        flagValueHolder: Class<*>
+        flagValueHolder: Class<*>,
+        holders: FlagValueHolders<PhoneFlag>
     ) {
         val creatorMethods = creator.declaredMethods.filter {
             it.returnType == flagValueHolder
@@ -142,25 +149,28 @@ object PhoneHooks: GrpcHooks() {
         creatorMethods.forEach { creatorMethod ->
             log("Creator ${creator.name} method: ${creatorMethod.declaringClass.name}.${creatorMethod.name}(${creatorMethod.parameterTypes.joinToString(", ") { it.name }})")
             XposedBridge.hookMethod(creatorMethod, object: XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    pendingFlag.set(
-                        resolveFlag(param.args.getOrNull(0), param.args.getOrNull(1))
-                    )
-                }
-
                 override fun afterHookedMethod(param: MethodHookParam) {
+                    if (param.hasThrowable()) return
                     val flagPackage = param.args.getOrNull(0) as? String ?: return
                     val flagName = param.args.getOrNull(1) as? String ?: return
                     if (seenFlags.add("$flagPackage/$flagName")) {
                         log("Flag lookup: $flagPackage -> $flagName")
                     }
-                    pendingFlag.get()?.let {
-                        log("Overriding ${it.name} ($flagPackage/$flagName) -> ${flagHolders[it]?.size ?: 0} holder(s)")
-                        if (param.result != null) {
-                            it.getHolders().add(param.result)
+                    val flag = resolveFlag(flagPackage, flagName) ?: return
+                    val original = param.result ?: return
+                    try {
+                        // Default holders (especially true/false) are shared by many flags. Never
+                        // associate or modify the original: that also changes unrelated flags.
+                        param.result = holders.isolate(flag, original)
+                        if (isolatedFlags.add(flag)) {
+                            log("Isolated ${flag.name} ($flagPackage/$flagName), " +
+                                    "original holder=${System.identityHashCode(original)}")
+                        }
+                    } catch (e: Exception) {
+                        if (isolationFailures.add(flag)) {
+                            log("Unable to isolate ${flag.name}: $e")
                         }
                     }
-                    pendingFlag.remove()
                 }
             })
         }
@@ -174,12 +184,13 @@ object PhoneHooks: GrpcHooks() {
     private fun hookFlagValueHolder(
         flagValueHolder: Class<*>,
         protoMethod: Method,
-        settings: PhoneSettings
+        settings: PhoneSettings,
+        holders: FlagValueHolders<PhoneFlag>
     ) {
         val hookMethod: (Method) -> Unit = { method: Method ->
             XposedBridge.hookMethod(method, object: XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
-                    val flag = getFlagForHolder(param.thisObject, method) ?: run {
+                    val flag = holders.flagFor(param.thisObject) ?: run {
                         logUnassociatedRead(param.thisObject, method)
                         return
                     }
@@ -221,25 +232,6 @@ object PhoneHooks: GrpcHooks() {
                     && !Modifier.isStatic(it.modifiers)
                     && it.returnType != Void.TYPE
         } + protoMethod).distinct().forEach(hookMethod)
-    }
-
-    /**
-     *  Maps a flag value holder back to its flag. Dialer sometimes reads the value of a holder
-     *  while the creator that built it is still on the stack, before it has been recorded, so fall
-     *  back to the flag the creator is currently resolving on this thread.
-     */
-    private fun getFlagForHolder(holder: Any, method: Method): PhoneFlag? {
-        flagHolders.entries.firstOrNull { holder in it.value }?.let { return it.key }
-        val pending = pendingFlag.get() ?: return null
-        pending.getHolders().add(holder)
-        if (lateAssociations.add(pending)) {
-            log("Associating ${pending.name} with holder read from ${method.name}()")
-        }
-        return pending
-    }
-
-    private fun PhoneFlag.getHolders(): MutableSet<Any> {
-        return flagHolders.getOrPut(this) { ConcurrentHashMap.newKeySet() }
     }
 
     private fun Any.describeValue(): String {
@@ -409,6 +401,11 @@ object PhoneHooks: GrpcHooks() {
      */
     private fun LoadPackageParam.hookCallScreen(dexKit: DexKitBridge, settings: PhoneSettings) {
         if (!settings.dobbyEnabled) return
+        val mode = callScreenAgenticMode()
+        if (mode != CallScreenMode.DUPLEX) {
+            log("Leaving legacy Duplex Call Screen entry disabled for $mode mode")
+            return
+        }
         val callScreenEnabledFn = dexKit.findClass {
             matcher {
                 usingStrings("feature disabled by tidepods call screen flag")
@@ -878,6 +875,16 @@ object PhoneHooks: GrpcHooks() {
             PhoneFlag.DOBBY_ENABLED -> if (settings.dobbyEnabled) {
                 true
             } else null
+            // The model picker and the call session read independent providers. Pin the
+            // actual session flags explicitly instead of relying on shared-default leakage.
+            PhoneFlag.DOBBY_AGENTIC_ENABLED,
+            PhoneFlag.DOBBY_GACS_MANUAL_ENABLED -> if (settings.dobbyEnabled) {
+                when (callScreenAgenticMode()) {
+                    CallScreenMode.FORCE_AGENTIC -> true
+                    CallScreenMode.DUPLEX -> false
+                    CallScreenMode.DIALER_DEFAULT -> null
+                }
+            } else null
             PhoneFlag.ATLAS_ENABLED -> if (settings.atlasEnabled) {
                 true
             } else null
@@ -940,7 +947,9 @@ object PhoneHooks: GrpcHooks() {
             PhoneFlag.CALL_RECORDING_FERMAT_DISABLE -> if (settings.callRecordingEnabled) {
                 false
             } else null
-            PhoneFlag.CALL_SCREEN_I18N_TIDEPODS -> if (settings.dobbyEnabled) {
+            PhoneFlag.CALL_SCREEN_I18N_TIDEPODS -> if (
+                settings.dobbyEnabled && callScreenAgenticMode() == CallScreenMode.FORCE_AGENTIC
+            ) {
                 true
             } else null
         }

@@ -10,6 +10,57 @@
 后续点击 Screen 的启动失败也已修复。2026-10-15 `16:00` 的真实来电使用
 v6_3 资源成功启动中文 GACS，用户确认测试成功。最终版本通过 47 项单元测试。
 
+## 本分支实机回归：资源齐全仍显示红色提示
+
+对 `06eb1f6` 构建并安装测试后，英文 Agentic 设置页仍出现
+“Missing required resources”。当时三个检查均正常：MDD 本地/请求版本都是
+`1790632200`，SODA 为 `Soda already working`，AICore feature 305/version 4
+为 `DOWNLOADED_MODEL`。本次并非前述空模型组或下载失败。
+
+通过临时的只读 provider 诊断，在 `2026-10-15 17:06:01.391` 得到直接证据：
+
+```text
+BANNER_TRACE enableUnconditionalResourcesBanner:
+  native=false, associated=XATU_ENABLED, override=true, holder=265203114
+BANNER_TRACE provider result=true
+```
+
+新版 APK 中，`nyc` 的构造器参数下标 15（从 0 开始）是 `enableUnconditionalResourcesBanner`，
+`hiw.ii` → `hiv` case 467 → Direct Boot flag `45794883`。这个开关会走
+无条件资源横幅路径。
+
+旧 `PhoneHooks` 把 creator 返回对象加入各个 flag 的集合，再用
+`firstOrNull { holder in it.value }` 反查。Dialer 对不同布尔开关复用默认 holder，
+所以未被模块跟踪的横幅开关也被误认为 Direct My Call 的 `XATU_ENABLED`，
+并套用了启用 Direct My Call 的 `true`。实际取到哪个 flag 还会随对象登记/遍历
+顺序变化。这也是只强制关闭横幅无法解决整个问题的原因。
+
+本次在保持分支原有功能范围与系统属性配置的前提下补齐通用修复：
+
+- 为每个已覆盖的 flag 和原对象身份创建独立 holder，保留 supplier 与元数据；
+  原始共享对象不登记、不修改。删除会把未知读取归到当前 flag 的 ThreadLocal 回退。
+- 显式按 `persist.pcs.call_screen_agentic` 覆盖 Agentic 会话开关
+  `45770994` / `45788921`，不再依赖串值意外打开 GACS。
+- Force Agentic 使用 Tidepods/GACS 入口，Duplex 模式才强制旧入口。
+- 横幅开关保留原生值，真实资源缺失仍由原生检查和 MDD 空组保护报告。
+
+11 项单元测试和 Release 构建通过；测试包括共享默认值、未知开关不被覆盖、
+对象身份、supplier/元数据保留及并发读取。临时诊断代码已从最终源码移除。
+修复后冷启动，设置页红条消失；日志显示多个地区开关原来共用同一 holder，
+隔离后 US 为 true，其余地区为 false，`DOBBY_AGENTIC_ENABLED` 独立应用为 true。
+用户在修复版测试后确认生效。结束时已恢复测试前的中文 PCS APK，CE/DE 设置文件
+均与备份逐字节一致，调试恢复为关闭；恢复后的新进程确认 `region=zh-CN` 和
+`Simplified Chinese GACS hooks installed`。
+
+本轮分支修复版 APK 的 SHA-256 为
+`c1c8c2e49e20040f8f8a9ea922b501ce2f3c1509e195b1b1e395bd437041b9ee`。
+
+本地构建还补齐了 README 要求的 ARM64 `libsekret.so` 与匹配签名的生成输入，
+均位于已忽略的本地构建目录；没有将密钥或二进制依赖提交到源码。
+本轮测试日志与 APK 位于工作区 `diagnostics/dialer-20261015/fix-branch-device/`。
+
+以下保留 main 分支原始排查记录。
+
 ## 现场与根因
 
 2026-10-15，设备为 `242.0.998227485-publicbeta-pixel2026`，versionCode
