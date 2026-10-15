@@ -152,7 +152,9 @@ abstract class BaseSettingsRepositoryImpl: BaseSettingsRepository {
         awaitClose {
             sharedPreferences?.unregisterOnSharedPreferenceChangeListener(listener)
         }
-    }.shareIn(scope, SharingStarted.Eagerly)
+    // Start only when the UI observes a setting, after the subclass has initialized its store.
+    // Provider-only reads need no listener or main-thread coroutine.
+    }.shareIn(scope, SharingStarted.WhileSubscribed())
 
     fun boolean(key: String, default: Boolean, onChanged: MutableSharedFlow<String>? = null) =
         PcsSettingImpl(
@@ -442,15 +444,16 @@ abstract class BaseSettingsRepositoryImpl: BaseSettingsRepository {
 
     inline fun <reified T : Enum<T>> sharedEnum(
         key: String,
-        default: Enum<T>
+        default: T
     ): ReadWriteProperty<Any?, T> {
         return object : ReadWriteProperty<Any?, T> {
 
             override operator fun getValue(thisRef: Any?, property: KProperty<*>): T {
-                return java.lang.Enum.valueOf(
-                    T::class.java,
-                    sharedPreferences.getString(key, default.name)
-                )
+                // A newer branch may store an enum this build does not support (e.g. CN).
+                // Use the local default without overwriting the saved value.
+                return SettingsConverters.deserializeEnum<T>(
+                    sharedPreferences.getString(key, default.name) ?: default.name
+                ) ?: default
             }
 
             override operator fun setValue(thisRef: Any?, property: KProperty<*>, value: T) {

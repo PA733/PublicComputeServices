@@ -39,7 +39,7 @@ BANNER_TRACE provider result=true
 
 - 为每个已覆盖的 flag 和原对象身份创建独立 holder，保留 supplier 与元数据；
   原始共享对象不登记、不修改。删除会把未知读取归到当前 flag 的 ThreadLocal 回退。
-- 显式按 `persist.pcs.call_screen_agentic` 覆盖 Agentic 会话开关
+- 显式按 `PhoneSettingsProvider` 的 Call Screen 模式覆盖 Agentic 会话开关
   `45770994` / `45788921`，不再依赖串值意外打开 GACS。
 - Force Agentic 使用 Tidepods/GACS 入口，Duplex 模式才强制旧入口。
 - 横幅开关保留原生值，真实资源缺失仍由原生检查和 MDD 空组保护报告。
