@@ -79,6 +79,7 @@ object PhoneHooks: GrpcHooks() {
         hookSharpieCountry(dexKit, settings)
         hookCallScreen(dexKit, settings)
         hookDobbyModel(dexKit, settings)
+        if (settings.dobbyEnabled) DobbyMddHooks.install(dexKit, classLoader)
         hookDobbySettings(dexKit, settings)
         hookXatuModelDownload(dexKit, settings)
         hookXatuMddConnectivity(dexKit, settings)
@@ -431,7 +432,7 @@ object PhoneHooks: GrpcHooks() {
     }
 
     /**
-     *  Dialer picks the "agentic" Call Screen model (`call_assistant_extraction-v6_2-*`, driven by
+     *  Dialer picks the "agentic" Call Screen model (`call_assistant_extraction-v6_*`, driven by
      *  AICore's GACS feature 305) when `enableAgenticCallScreen` is set, or when
      *  `enableGacsManualScreening` is set in a region where manual screening is supported, and
      *  otherwise falls back to the earlier duplex model. Force the two flags the model picker is
@@ -447,54 +448,37 @@ object PhoneHooks: GrpcHooks() {
             log("Leaving Dialer's Call Screen model choice alone (agentic mode requested)")
             return
         }
-        val modelPicker = dexKit.findClass {
-            matcher {
-                usingStrings("/call_assistant_extraction-v6_2-en_us.zip")
-            }
-        }.singleOrNull()?.getInstance(classLoader) ?: run {
-            log("Unable to find Dobby model picker")
+        val picker = try {
+            DobbyModelPicker.find(dexKit, classLoader)
+        } catch (error: Exception) {
+            log("Unable to resolve Dobby model picker: $error")
             return
         }
-        val constructor = modelPicker.declaredConstructors.firstOrNull {
-            it.parameterCount == 11
-        } ?: run {
-            log("Unable to find Dobby model picker constructor")
-            return
-        }
-        // (localeProvider, downloadPath, enableAgenticCallScreen, enableGacsManualScreening,
-        //  isUserInUs, isUserInUk, isUserInJp, isUserInCa, isUserInIe, isUserInAu, isUserInIn)
-        val flagType = constructor.parameterTypes.getOrNull(3)
-        if (flagType == null || !flagType.isInterface ||
-            constructor.parameterTypes.drop(2).distinct().size != 1) {
-            log("Unexpected Dobby model picker signature in ${modelPicker.name}")
-            return
-        }
+        val constructor = picker.constructor
+        val flagType = picker.flagType
         val disabled = flagType.constantProvider(false)
         val enabled = flagType.constantProvider(true)
         val agentic = flagType.constantProvider(mode == CallScreenMode.FORCE_AGENTIC)
         // Dialer's own region flags are not reliable without the experiment overrides, so select
         // the model from the region PCS is configured for
-        val regionIndex = when (settings.dobbyRegion) {
-            DobbyRegion.US -> 4
-            DobbyRegion.GB -> 5
-            DobbyRegion.JP -> 6
-            DobbyRegion.CA -> 7
-            DobbyRegion.IE -> 8
-            DobbyRegion.AU -> 9
-            DobbyRegion.IN -> 10
+        val regionOffset = when (settings.dobbyRegion) {
+            DobbyRegion.US -> 0
+            DobbyRegion.GB -> 1
+            DobbyRegion.JP -> 2
+            DobbyRegion.CA -> 3
+            DobbyRegion.IE -> 4
+            DobbyRegion.AU -> 5
+            DobbyRegion.IN -> 6
         }
         XposedBridge.hookMethod(constructor, object: XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
-                param.args[2] = agentic
-                param.args[3] = agentic
-                for (index in 4..10) {
-                    param.args[index] = if (index == regionIndex) enabled else disabled
-                }
+                picker.overrideProviders(param.args, agentic, regionOffset, enabled, disabled)
             }
         })
         log(
             "Forcing the ${if (mode == CallScreenMode.FORCE_AGENTIC) "agentic" else "non-agentic"} " +
-                    "Call Screen model for ${settings.dobbyRegion} in ${modelPicker.name}"
+                    "Call Screen model for ${settings.dobbyRegion} in ${constructor.declaringClass.name} " +
+                    "(${constructor.parameterCount} dependencies)"
         )
     }
 
@@ -513,21 +497,21 @@ object PhoneHooks: GrpcHooks() {
         }
         val dataSource = dexKit.findClass {
             matcher {
-                usingStrings("gacsMode: [%s], aiCoreModelAvailabilityStatus: [%s], isAstreaUpToDate: %b")
+                usingStrings("enableLlmSmartReplyConsentFlow", "enableUnconditionalResourcesBanner",
+                    "enableDobbyGemini")
             }
         }.singleOrNull()?.getInstance(classLoader) ?: run {
             log("Unable to find Dobby settings data source")
             return
         }
         val constructor = dataSource.declaredConstructors.firstOrNull {
-            it.parameterCount == 21 && it.parameterTypes.drop(14).distinct().size == 1
+            it.parameterCount in 20..22 && it.parameterTypes.drop(14).distinct().size == 1
         } ?: run {
             log("Unable to find Dobby settings data source constructor")
             return
         }
-        // (..., enableLlmSmartReplyConsentFlow, enableUnconditionalResourcesBanner,
-        //  enableFixForStuckDownloadingBanner, enableDobbyGemini, allowTtsFallback,
-        //  enableGacsManualScreening, enableAgenticCallScreen)
+        // The consent/banner providers stay at 14/15. Agentic is last; before 242,
+        // manual-screening was penultimate. 242 removed manual-screening and allowTtsFallback.
         val flagType = constructor.parameterTypes[15]
         if (!flagType.isInterface) {
             log("Unexpected Dobby settings data source signature in ${dataSource.name}")
@@ -538,8 +522,10 @@ object PhoneHooks: GrpcHooks() {
             override fun beforeHookedMethod(param: MethodHookParam) {
                 log("Applying GACS banner overrides to ${dataSource.name}")
                 param.args[15] = disabled
-                param.args[19] = disabled
-                param.args[20] = disabled
+                param.args[constructor.parameterCount - 1] = disabled
+                if (constructor.parameterCount > 20) {
+                    param.args[constructor.parameterCount - 2] = disabled
+                }
             }
         })
         log("Disabling the GACS resources banner in ${dataSource.name}")
