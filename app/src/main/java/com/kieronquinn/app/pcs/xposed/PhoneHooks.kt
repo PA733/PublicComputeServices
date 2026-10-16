@@ -854,7 +854,8 @@ object PhoneHooks: GrpcHooks() {
             PhoneFlag.FERMAT_GEOFENCE -> if (settings.callRecordingEnabled || settings.fermatEnabled) {
                 true
             } else null
-            PhoneFlag.EXPRESSO_ENABLED -> if (settings.expressoEnabled) {
+            // Dialer gates both its settings entry and sender UI separately from the service.
+            PhoneFlag.EXPRESSO_ENABLED, PhoneFlag.EXPRESSO_UI_ENABLED -> if (settings.expressoEnabled) {
                 true
             } else null
             PhoneFlag.PATRICK_ENABLED -> if (settings.patrickPhase >= PatrickPhase.PHASE_ONE) {
