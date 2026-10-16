@@ -73,6 +73,7 @@ object PhoneHooks: GrpcHooks() {
             "debug=${settings.debugLogging}")
         logDobbyData(settings)
         hookFlagDataStore(dexKit, settings)
+        CallNotesHooks.install(dexKit, classLoader, settings.fermatEnabled)
         hookSharpieCountry(dexKit, settings)
         hookCallScreen(dexKit, settings)
         hookDobbyModel(dexKit, settings)
