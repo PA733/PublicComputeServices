@@ -94,7 +94,6 @@ class PhoneSettingsProvider: ContentProvider() {
         sharpieCountry = settings.phoneSharpieCountry.getSync(),
         manifestHandlingEnabled = settings.phoneManifestHandlingEnabled.getSync(),
         debugLogging = settings.phoneDebugLogging.getSync(),
-        aiRepliesEnabled = settings.phoneAiRepliesEnabled.getSync(),
         xatuAllowMetered = settings.phoneXatuAllowMetered.getSync()
     )
 

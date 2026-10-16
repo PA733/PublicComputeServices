@@ -444,16 +444,15 @@ abstract class BaseSettingsRepositoryImpl: BaseSettingsRepository {
 
     inline fun <reified T : Enum<T>> sharedEnum(
         key: String,
-        default: T
+        default: Enum<T>
     ): ReadWriteProperty<Any?, T> {
         return object : ReadWriteProperty<Any?, T> {
 
             override operator fun getValue(thisRef: Any?, property: KProperty<*>): T {
-                // A newer branch may store an enum this build does not support (e.g. CN).
-                // Use the local default without overwriting the saved value.
-                return SettingsConverters.deserializeEnum<T>(
-                    sharedPreferences.getString(key, default.name) ?: default.name
-                ) ?: default
+                return java.lang.Enum.valueOf(
+                    T::class.java,
+                    sharedPreferences.getString(key, default.name)
+                )
             }
 
             override operator fun setValue(thisRef: Any?, property: KProperty<*>, value: T) {

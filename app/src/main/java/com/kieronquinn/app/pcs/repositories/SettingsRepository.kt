@@ -18,8 +18,6 @@ interface SettingsRepository: BaseSettingsRepository {
 
     val phoneDebugLogging: PcsSetting<Boolean>
 
-    val phoneAiRepliesEnabled: PcsSetting<Boolean>
-
     // Phone Flags
     val phoneCallScreenMode: PcsSetting<CallScreenMode>
     val phoneSharpieCountryMode: PcsSetting<SharpieCountryMode>
@@ -220,8 +218,6 @@ class SettingsRepositoryImpl(
     override val phoneManifestHandlingEnabled = boolean("phone_manifest_handling_enabled", false)
 
     override val phoneDebugLogging = boolean("phone_debug_logging", false)
-
-    override val phoneAiRepliesEnabled = boolean("phone_ai_replies_enabled", false)
 
     override val autoSync = boolean(KEY_AUTO_SYNC, DEFAULT_AUTO_SYNC)
 

@@ -30,7 +30,6 @@ data class PhoneSettings(
     val sharpieCountry: String = "US",
     val manifestHandlingEnabled: Boolean = false,
     val debugLogging: Boolean = false,
-    val aiRepliesEnabled: Boolean = false,
     val xatuAllowMetered: Boolean = true
 ): Parcelable {
 
