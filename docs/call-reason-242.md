@@ -25,3 +25,20 @@ main 的 58 项测试、fix/dialer-hooks 的 25 项测试及两个 Release 构�
 - 本机已有 SEND_SMS/RECEIVE_SMS 权限，未修改权限或“打断勿扰”设置。
 - fix 版测试期间临时使用它支持的 Call Screen US 配置；回到 main 后恢复 CN。
   测试后的 PCS 偏好与测试前完全一致，手机保留 main 修复版。
+
+## 双机核对与验证边界
+
+随后核对 Pixel 11 Pro XL（Android 17，Dialer 242）和 Pixel 7 Pro（Android 16，
+Dialer 241.0.991235506-pixel）。两台安装的 PCS APK 哈希均为本轮 main 修复版，
+Call Reason 开关和两项标志覆盖均已生效。原生设置页都已实际打开：
+入口在 General 中、Audio Emoji 下方；英式英语写作 `Expressive calling`。
+联系人状态不会控制这个设置入口。
+
+通话功能还保留原生前置条件。发送端和接收端都调用共享的联系人检查；初次测试
+在 Pixel 11 记录 `the feature is disabled by non-contact`。用户互存号码后，
+Pixel 7 的 ExpressoRemote 又记录 `LOCAL_IDENTITY_NOT_RCS_CAPABLE`，说明通信层
+未将本次本机身份判定为 RCS 可用。不能用入口显示或开关覆盖代替真实 RCS 能力。
+
+用户表示这些号码应该都不支持 RCS，明确要求跳过实际收发测试，以入口恢复作为
+本轮完成标准。因此本轮通过的是双机入口、模块开关及原生用户开关验证，
+不声称紧急提醒已成功送达。两个日志采集进程已停止，保留修复和原生限制。
